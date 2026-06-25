@@ -1,0 +1,86 @@
+.container {
+  min-height: 100vh;
+  background: linear-gradient(160deg, #EEF2FF 0%, #F5F6FA 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 60rpx 40rpx;
+  width: 100%;
+}
+
+/* 脑波动画 */
+.brain-wrap {
+  position: relative;
+  width: 200rpx;
+  height: 200rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 40rpx;
+}
+.brain-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 4rpx solid rgba(79, 126, 255, 0.3);
+  animation: ripple 2s ease-out infinite;
+}
+.ring1 { width: 120rpx; height: 120rpx; animation-delay: 0s; }
+.ring2 { width: 160rpx; height: 160rpx; animation-delay: 0.5s; }
+.ring3 { width: 200rpx; height: 200rpx; animation-delay: 1s; }
+.brain-center { font-size: 80rpx; z-index: 1; }
+@keyframes ripple {
+  0%   { transform: scale(0.8); opacity: 1; }
+  100% { transform: scale(1.2); opacity: 0; }
+}
+
+.title { font-size: 44rpx; font-weight: 700; color: #333; margin-bottom: 8rpx; }
+.bank-name { font-size: 26rpx; color: #666; margin-bottom: 48rpx; max-width: 560rpx; text-align: center; }
+
+/* 进度条 */
+.progress-wrap { width: 560rpx; display: flex; align-items: center; gap: 20rpx; margin-bottom: 20rpx; }
+.progress-bar { flex: 1; height: 16rpx; background: #E0E8FF; border-radius: 8rpx; overflow: hidden; }
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4F7EFF, #7B6FF0);
+  border-radius: 8rpx;
+  transition: width 0.5s ease;
+}
+.progress-text { font-size: 28rpx; font-weight: 700; color: #4F7EFF; width: 70rpx; }
+
+.status-msg { font-size: 26rpx; color: #666; margin-bottom: 12rpx; text-align: center; max-width: 560rpx; }
+.gen-count { font-size: 26rpx; color: #999; margin-bottom: 48rpx; }
+.count-num { color: #4F7EFF; font-weight: 700; font-size: 32rpx; }
+
+/* 步骤 */
+.steps { display: flex; align-items: center; margin-bottom: 60rpx; }
+.step { display: flex; flex-direction: column; align-items: center; gap: 8rpx; }
+.step-dot {
+  width: 52rpx;
+  height: 52rpx;
+  border-radius: 50%;
+  background: #E0E8FF;
+  color: #AAA;
+  font-size: 22rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+.step.done .step-dot { background: var(--color-success); color: #fff; }
+.step.active .step-dot { background: var(--color-primary); color: #fff; animation: pulse-dot 1s infinite; }
+.step text { font-size: 20rpx; color: #999; }
+.step.done text, .step.active text { color: #333; }
+.step-line { width: 60rpx; height: 4rpx; background: #E0E8FF; margin: 0 4rpx 20rpx; }
+@keyframes pulse-dot { 0%,100%{transform:scale(1)} 50%{transform:scale(1.15)} }
+
+/* 完成/失败 */
+.done-area, .fail-area { display: flex; flex-direction: column; align-items: center; gap: 20rpx; }
+.done-icon, .fail-icon { font-size: 100rpx; }
+.done-text, .fail-text { font-size: 30rpx; color: #333; text-align: center; }
+.go-btn { min-width: 320rpx; }
+.retry-btn { min-width: 320rpx; }

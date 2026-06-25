@@ -1,0 +1,86 @@
+<!-- 考前准备页 -->
+<view class="prepare-page" wx:if="{{phase === 'prepare'}}">
+  <view class="prepare-icon">📝</view>
+  <view class="prepare-title">模拟考试</view>
+  <view class="prepare-bank">{{bankName}}</view>
+  <view class="prepare-rules card">
+    <view class="rule-item">
+      <text class="rule-label">题目数量</text>
+      <text class="rule-val">{{examCount}} 题</text>
+    </view>
+    <view class="rule-item">
+      <text class="rule-label">考试时长</text>
+      <text class="rule-val">{{examMinutes}} 分钟</text>
+    </view>
+    <view class="rule-item">
+      <text class="rule-label">及格分数</text>
+      <text class="rule-val">60 分</text>
+    </view>
+  </view>
+  <view class="count-setting">
+    <text class="cs-label">出题数量</text>
+    <view class="num-control">
+      <view class="num-btn" bindtap="decCount">-</view>
+      <text class="num-val">{{examCount}}</text>
+      <view class="num-btn" bindtap="incCount">+</view>
+    </view>
+  </view>
+  <button class="btn-primary start-btn" bindtap="startExam">开始考试</button>
+</view>
+
+<!-- 答题页 -->
+<view class="exam-page" wx:if="{{phase === 'exam'}}">
+  <!-- 顶部计时器 + 进度 -->
+  <view class="exam-header">
+    <view class="timer {{timeLeft <= 60 ? 'urgent' : ''}}">
+      ⏱ {{formatTime(timeLeft)}}
+    </view>
+    <view class="exam-progress">{{answeredCount}}/{{questions.length}} 已答</view>
+    <view class="sheet-btn" bindtap="showSheet">答题卡</view>
+  </view>
+
+  <!-- 题目 -->
+  <view class="question-card">
+    <view class="q-num">第 {{currentIndex + 1}} 题</view>
+    <view class="q-type-tag {{currentQ.type}}">{{typeLabel[currentQ.type]}}</view>
+    <view class="q-content">{{currentQ.content}}</view>
+    <view class="options">
+      <view
+        wx:for="{{currentQ.options}}" wx:key="key"
+        class="option {{userAnswers[currentIndex] && userAnswers[currentIndex].includes(item.key) ? 'selected' : ''}}"
+        bindtap="selectOption"
+        data-key="{{item.key}}"
+      >
+        <view class="option-key">{{item.key}}</view>
+        <view class="option-text">{{item.text}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 底部导航 -->
+  <view class="exam-nav safe-bottom">
+    <button class="nav-btn" bindtap="prevQ" disabled="{{currentIndex === 0}}">‹ 上一题</button>
+    <button class="nav-btn submit-btn" bindtap="confirmSubmit">交卷</button>
+    <button class="nav-btn" bindtap="nextQ" disabled="{{currentIndex === questions.length - 1}}">下一题 ›</button>
+  </view>
+
+  <!-- 答题卡弹层 -->
+  <view class="sheet-mask" wx:if="{{showSheet}}" bindtap="hideSheet"></view>
+  <view class="sheet-panel {{showSheet ? 'show' : ''}}">
+    <view class="sheet-title">答题卡</view>
+    <view class="sheet-grid">
+      <view
+        wx:for="{{questions}}" wx:key="id"
+        class="sheet-item {{userAnswers[index] ? 'answered' : ''}} {{index === currentIndex ? 'current' : ''}}"
+        bindtap="jumpTo"
+        data-index="{{index}}"
+      >{{index + 1}}</view>
+    </view>
+    <view class="sheet-legend">
+      <view class="legend-item"><view class="legend-dot answered"></view>已答</view>
+      <view class="legend-item"><view class="legend-dot"></view>未答</view>
+      <view class="legend-item"><view class="legend-dot current"></view>当前</view>
+    </view>
+    <button class="btn-primary sheet-submit" bindtap="confirmSubmit">交卷 ({{answeredCount}}/{{questions.length}})</button>
+  </view>
+</view>

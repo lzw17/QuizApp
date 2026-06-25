@@ -1,0 +1,80 @@
+<view class="container" wx:if="{{bank}}">
+  <!-- 头部 -->
+  <view class="header">
+    <view class="bank-icon">📚</view>
+    <view class="header-info">
+      <view class="bank-name">{{bank.name}}</view>
+      <view class="bank-desc">{{bank.description || '暂无描述'}}</view>
+      <view class="bank-meta">
+        <text class="meta-item">{{bank.total_count}} 道题</text>
+        <text class="meta-sep">·</text>
+        <text class="meta-item tag" wx:if="{{bank.category}}">{{bank.category}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 我的进度 -->
+  <view class="progress-card card" wx:if="{{progress.total_answered > 0}}">
+    <view class="progress-title">我的进度</view>
+    <view class="progress-stats">
+      <view class="pstat">
+        <text class="pstat-num">{{progress.total_answered}}</text>
+        <text class="pstat-label">已答</text>
+      </view>
+      <view class="pstat">
+        <text class="pstat-num green">{{progress.correct_count}}</text>
+        <text class="pstat-label">答对</text>
+      </view>
+      <view class="pstat">
+        <text class="pstat-num blue">{{(progress.accuracy * 100).toFixed(0)}}%</text>
+        <text class="pstat-label">正确率</text>
+      </view>
+    </view>
+    <view class="pbar-wrap">
+      <view class="pbar">
+        <view class="pbar-fill" style="width:{{(progress.total_answered / bank.total_count * 100).toFixed(0)}}%"></view>
+      </view>
+      <text class="pbar-label">已完成 {{(progress.total_answered / bank.total_count * 100).toFixed(0)}}%</text>
+    </view>
+  </view>
+
+  <!-- 练习模式 -->
+  <view class="section-title">选择练习模式</view>
+  <view class="modes">
+    <view class="mode-card" bindtap="startPractice" data-mode="sequential">
+      <view class="mode-icon">📋</view>
+      <view class="mode-name">顺序练习</view>
+      <view class="mode-desc">按题序逐题练，支持断点续做</view>
+      <view class="mode-arrow">›</view>
+    </view>
+    <view class="mode-card" bindtap="startPractice" data-mode="random">
+      <view class="mode-icon">🎲</view>
+      <view class="mode-name">随机练习</view>
+      <view class="mode-desc">随机出题，碎片化学习</view>
+      <view class="mode-arrow">›</view>
+    </view>
+    <view class="mode-card" bindtap="startExam">
+      <view class="mode-icon">📝</view>
+      <view class="mode-name">模拟考试</view>
+      <view class="mode-desc">限时作答，交卷出分</view>
+      <view class="mode-arrow">›</view>
+    </view>
+  </view>
+
+  <!-- 按标签刷题 -->
+  <view wx:if="{{tags.length > 0}}">
+    <view class="section-title">按知识点练习</view>
+    <view class="tags-grid">
+      <view
+        wx:for="{{tags}}" wx:key="*this"
+        class="tag-item"
+        bindtap="startByTag"
+        data-tag="{{item}}"
+      >{{item}}</view>
+    </view>
+  </view>
+</view>
+
+<view class="loading-page" wx:if="{{!bank}}">
+  <view class="loading-dot"></view>
+</view>

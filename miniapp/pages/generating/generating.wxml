@@ -1,0 +1,65 @@
+<view class="container">
+  <view class="content">
+    <!-- 动画 -->
+    <view class="brain-wrap">
+      <view class="brain-ring ring1"></view>
+      <view class="brain-ring ring2"></view>
+      <view class="brain-ring ring3"></view>
+      <view class="brain-center">🤖</view>
+    </view>
+
+    <view class="title">AI 正在出题</view>
+    <view class="bank-name">{{bankName}}</view>
+
+    <!-- 进度条 -->
+    <view class="progress-wrap">
+      <view class="progress-bar">
+        <view class="progress-fill" style="width: {{progress}}%"></view>
+      </view>
+      <view class="progress-text">{{progress}}%</view>
+    </view>
+
+    <!-- 状态信息 -->
+    <view class="status-msg">{{message || '正在初始化...'}}</view>
+    <view class="gen-count" wx:if="{{generatedCount > 0}}">
+      已生成 <text class="count-num">{{generatedCount}}</text> 道题
+    </view>
+
+    <!-- 步骤提示 -->
+    <view class="steps">
+      <view class="step {{progress >= 5 ? 'done' : 'pending'}}">
+        <view class="step-dot">{{progress >= 5 ? '✓' : '1'}}</view>
+        <text>文档解析</text>
+      </view>
+      <view class="step-line"></view>
+      <view class="step {{progress >= 20 ? 'done' : progress >= 5 ? 'active' : 'pending'}}">
+        <view class="step-dot">{{progress >= 20 ? '✓' : '2'}}</view>
+        <text>分段处理</text>
+      </view>
+      <view class="step-line"></view>
+      <view class="step {{progress >= 90 ? 'done' : progress >= 20 ? 'active' : 'pending'}}">
+        <view class="step-dot">{{progress >= 90 ? '✓' : '3'}}</view>
+        <text>AI 出题</text>
+      </view>
+      <view class="step-line"></view>
+      <view class="step {{progress === 100 ? 'done' : progress >= 90 ? 'active' : 'pending'}}">
+        <view class="step-dot">{{progress === 100 ? '✓' : '4'}}</view>
+        <text>整理入库</text>
+      </view>
+    </view>
+
+    <!-- 完成 -->
+    <view class="done-area" wx:if="{{status === 'done'}}">
+      <view class="done-icon">🎉</view>
+      <view class="done-text">题库生成完成！共 {{generatedCount}} 道题</view>
+      <button class="btn-primary go-btn" bindtap="goDetail">开始刷题 →</button>
+    </view>
+
+    <!-- 失败 -->
+    <view class="fail-area" wx:if="{{status === 'failed'}}">
+      <view class="fail-icon">😢</view>
+      <view class="fail-text">生成失败：{{error}}</view>
+      <button class="btn-outline retry-btn" bindtap="goBack">返回重试</button>
+    </view>
+  </view>
+</view>

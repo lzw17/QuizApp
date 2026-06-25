@@ -1,0 +1,80 @@
+<view class="container">
+  <!-- 顶部 Banner -->
+  <view class="header">
+    <view class="header-title">智题宝</view>
+    <view class="header-sub">上传资料，AI 自动生成题库</view>
+    <button class="btn-upload" bindtap="goUpload">
+      <text class="icon">+</text> 导入新资料
+    </button>
+  </view>
+
+  <!-- 学习打卡卡片 -->
+  <view class="streak-card card" wx:if="{{userId}}">
+    <view class="streak-left">
+      <text class="streak-num">{{stats.today_answered || 0}}</text>
+      <text class="streak-label">今日已练</text>
+    </view>
+    <view class="streak-divider"></view>
+    <view class="streak-right">
+      <text class="streak-num">{{stats.total_answered || 0}}</text>
+      <text class="streak-label">累计答题</text>
+    </view>
+    <view class="streak-divider"></view>
+    <view class="streak-right">
+      <text class="streak-num">{{stats.accuracy ? (stats.accuracy * 100).toFixed(0) + '%' : '--'}}</text>
+      <text class="streak-label">正确率</text>
+    </view>
+  </view>
+
+  <!-- 分类筛选 -->
+  <scroll-view class="category-scroll" scroll-x>
+    <view class="category-list">
+      <view
+        class="category-item {{activeCategory === '' ? 'active' : ''}}"
+        bindtap="filterCategory"
+        data-category=""
+      >全部</view>
+      <view
+        wx:for="{{categories}}" wx:key="*this"
+        class="category-item {{activeCategory === item ? 'active' : ''}}"
+        bindtap="filterCategory"
+        data-category="{{item}}"
+      >{{item}}</view>
+    </view>
+  </scroll-view>
+
+  <!-- 题库列表 -->
+  <view class="bank-list">
+    <view
+      wx:for="{{banks}}" wx:key="id"
+      class="bank-card card"
+      bindtap="goDetail"
+      data-id="{{item.id}}"
+    >
+      <view class="bank-cover">
+        <text class="bank-icon">📚</text>
+      </view>
+      <view class="bank-info">
+        <view class="bank-name">{{item.name}}</view>
+        <view class="bank-desc">{{item.description || '暂无描述'}}</view>
+        <view class="bank-meta">
+          <text class="bank-count">{{item.total_count}} 题</text>
+          <text class="bank-category tag" wx:if="{{item.category}}">{{item.category}}</text>
+        </view>
+      </view>
+      <view class="bank-arrow">›</view>
+    </view>
+
+    <!-- 空状态 -->
+    <view class="empty-state" wx:if="{{!loading && banks.length === 0}}">
+      <text>还没有题库，快去导入资料吧</text>
+      <button class="btn-primary" style="margin-top:32rpx;" bindtap="goUpload">立即导入</button>
+    </view>
+  </view>
+
+  <!-- 加载更多 -->
+  <view class="load-more" wx:if="{{loading}}">
+    <view class="loading-dot"></view>
+    <text>加载中...</text>
+  </view>
+</view>

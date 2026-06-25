@@ -1,0 +1,46 @@
+.container { background: #F5F6FA; min-height: 100vh; padding-bottom: 40rpx; }
+
+/* tabs */
+.tabs { display: flex; background: #fff; border-bottom: 2rpx solid #EEE; }
+.tab { flex: 1; text-align: center; padding: 30rpx 0; font-size: 30rpx; color: #888; position: relative; }
+.tab.active { color: #4F7EFF; font-weight: 700; }
+.tab.active::after {
+  content: ''; position: absolute; bottom: 0; left: 25%; right: 25%;
+  height: 6rpx; background: #4F7EFF; border-radius: 3rpx;
+}
+
+/* 筛选 */
+.bank-filter { padding: 16rpx 20rpx; white-space: nowrap; background: #fff; margin-bottom: 16rpx; }
+.filter-list { display: inline-flex; gap: 12rpx; }
+.filter-item { display: inline-block; padding: 10rpx 24rpx; background: #F0F0F0; border-radius: 50rpx; font-size: 24rpx; color: #666; white-space: nowrap; }
+.filter-item.active { background: var(--color-primary); color: #fff; }
+
+.tip-bar { padding: 16rpx 30rpx; font-size: 24rpx; color: #888; }
+.tip-link { color: var(--color-primary); font-weight: 600; }
+
+/* 题目卡片 */
+.q-card { margin: 0 24rpx 20rpx; border-radius: 20rpx; }
+.qc-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16rpx; }
+.q-type-tag { display: inline-block; padding: 6rpx 18rpx; border-radius: 20rpx; font-size: 22rpx; font-weight: 600; }
+.q-type-tag.single { background: #E8F0FF; color: #4F7EFF; }
+.q-type-tag.multi  { background: #FFF3E0; color: #F57C00; }
+.q-type-tag.judge  { background: #E8F8EF; color: #18C971; }
+.qc-time { font-size: 22rpx; color: #CCC; }
+.star-remove { font-size: 24rpx; color: #FAAD14; padding: 8rpx 16rpx; background: #FFF7E0; border-radius: 10rpx; }
+
+.qc-content { font-size: 30rpx; line-height: 1.7; color: #222; margin-bottom: 20rpx; font-weight: 500; }
+.qc-answer-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4rpx; background: #F8F9FB; padding: 16rpx; border-radius: 12rpx; margin-bottom: 16rpx; font-size: 26rpx; }
+.label { color: #888; }
+.wrong-label { }
+.correct-label { }
+.ans { font-weight: 700; }
+.ans.red { color: var(--color-danger); }
+.ans.green { color: var(--color-success); }
+.sep { color: #CCC; margin: 0 8rpx; }
+
+.qc-exp { font-size: 26rpx; color: #555; line-height: 1.8; padding: 16rpx; background: #FFFDF0; border-radius: 12rpx; border-left: 6rpx solid #FAAD14; margin-bottom: 12rpx; }
+.exp-label { font-weight: 600; color: #F57C00; }
+.qc-tags { display: flex; flex-wrap: wrap; gap: 10rpx; }
+.q-tag { background: #F5F6FA; color: #888; font-size: 20rpx; padding: 4rpx 12rpx; border-radius: 10rpx; }
+
+.empty-state { padding: 120rpx 0; text-align: center; color: #CCC; font-size: 28rpx; }

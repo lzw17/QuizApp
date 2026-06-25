@@ -1,0 +1,88 @@
+.container { padding: 0 0 40rpx; }
+
+/* 顶部 Header */
+.header {
+  background: linear-gradient(135deg, #4F7EFF 0%, #7B6FF0 100%);
+  padding: 60rpx 40rpx 80rpx;
+  color: #fff;
+}
+.header-title { font-size: 48rpx; font-weight: 700; }
+.header-sub { font-size: 26rpx; opacity: 0.85; margin: 10rpx 0 30rpx; }
+.btn-upload {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255,255,255,0.25);
+  color: #fff;
+  border: 2rpx solid rgba(255,255,255,0.6);
+  border-radius: 50rpx;
+  padding: 14rpx 36rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+}
+.btn-upload::after { border: none; }
+.btn-upload .icon { font-size: 36rpx; margin-right: 8rpx; }
+
+/* 打卡卡片 */
+.streak-card {
+  margin: -40rpx 30rpx 24rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 32rpx 20rpx;
+  border-radius: 20rpx;
+  box-shadow: 0 8rpx 32rpx rgba(79,126,255,0.15);
+}
+.streak-num { display: block; font-size: 48rpx; font-weight: 700; color: #4F7EFF; text-align: center; }
+.streak-label { display: block; font-size: 22rpx; color: #999; margin-top: 4rpx; text-align: center; }
+.streak-divider { width: 2rpx; height: 60rpx; background: #EEE; }
+
+/* 分类筛选 */
+.category-scroll { padding: 0 30rpx; margin-bottom: 20rpx; white-space: nowrap; }
+.category-list { display: inline-flex; gap: 16rpx; }
+.category-item {
+  display: inline-block;
+  padding: 12rpx 28rpx;
+  background: #fff;
+  border-radius: 50rpx;
+  font-size: 26rpx;
+  color: #666;
+  border: 2rpx solid #EEE;
+  white-space: nowrap;
+}
+.category-item.active {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+/* 题库列表 */
+.bank-list { padding: 0 30rpx; }
+.bank-card {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20rpx;
+  padding: 28rpx;
+  border-radius: 20rpx;
+}
+.bank-cover {
+  width: 100rpx;
+  height: 100rpx;
+  background: var(--color-primary-light);
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.bank-icon { font-size: 48rpx; }
+.bank-info { flex: 1; margin: 0 20rpx; overflow: hidden; }
+.bank-name { font-size: 32rpx; font-weight: 600; margin-bottom: 8rpx; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bank-desc { font-size: 24rpx; color: #999; margin-bottom: 12rpx; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bank-meta { display: flex; align-items: center; gap: 12rpx; }
+.bank-count { font-size: 24rpx; color: #4F7EFF; font-weight: 600; }
+.bank-arrow { font-size: 40rpx; color: #CCC; }
+
+/* 加载 */
+.load-more { display: flex; align-items: center; justify-content: center; padding: 30rpx; color: #999; font-size: 26rpx; gap: 12rpx; }
+.loading-dot { width: 20rpx; height: 20rpx; border-radius: 50%; background: #4F7EFF; animation: pulse 1s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }

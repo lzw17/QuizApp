@@ -1,0 +1,83 @@
+<view class="container">
+  <!-- 题库基本信息 -->
+  <view class="section card">
+    <view class="section-title">题库信息</view>
+    <view class="form-item">
+      <text class="form-label">题库名称 <text class="required">*</text></text>
+      <input class="form-input" placeholder="例如：Python 基础知识" bindinput="onNameInput" value="{{bankName}}" maxlength="50" />
+    </view>
+    <view class="form-item">
+      <text class="form-label">分类</text>
+      <input class="form-input" placeholder="例如：编程、历史、英语" bindinput="onCategoryInput" value="{{bankCategory}}" maxlength="20" />
+    </view>
+    <view class="form-item">
+      <text class="form-label">描述</text>
+      <textarea class="form-textarea" placeholder="简短介绍这个题库..." bindinput="onDescInput" value="{{bankDesc}}" maxlength="200" />
+    </view>
+  </view>
+
+  <!-- 出题设置 -->
+  <view class="section card">
+    <view class="section-title">出题设置</view>
+    <view class="form-item row">
+      <text class="form-label">每段直白题数</text>
+      <view class="num-control">
+        <view class="num-btn" bindtap="decDirect">-</view>
+        <text class="num-val">{{numDirect}}</text>
+        <view class="num-btn" bindtap="incDirect">+</view>
+      </view>
+    </view>
+    <view class="form-item row">
+      <text class="form-label">每段逻辑题数</text>
+      <view class="num-control">
+        <view class="num-btn" bindtap="decLogic">-</view>
+        <text class="num-val">{{numLogic}}</text>
+        <view class="num-btn" bindtap="incLogic">+</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 来源选择 -->
+  <view class="section card">
+    <view class="section-title">资料来源</view>
+    <view class="source-tabs">
+      <view class="source-tab {{sourceType === 'file' ? 'active' : ''}}" bindtap="switchSource" data-type="file">📄 上传文件</view>
+      <view class="source-tab {{sourceType === 'url' ? 'active' : ''}}" bindtap="switchSource" data-type="url">🔗 输入链接</view>
+    </view>
+
+    <!-- 文件上传 -->
+    <view wx:if="{{sourceType === 'file'}}">
+      <view class="upload-zone" bindtap="chooseFile" wx:if="{{!selectedFile}}">
+        <text class="upload-icon">📤</text>
+        <text class="upload-tip">点击选择 PDF 或 Word 文件</text>
+        <text class="upload-sub">支持 .pdf / .doc / .docx，最大 50MB</text>
+      </view>
+      <view class="file-selected" wx:else>
+        <text class="file-icon">📄</text>
+        <view class="file-info">
+          <text class="file-name">{{selectedFile.name}}</text>
+          <text class="file-size">{{selectedFile.size}}</text>
+        </view>
+        <text class="file-remove" bindtap="removeFile">✕</text>
+      </view>
+    </view>
+
+    <!-- URL 输入 -->
+    <view wx:if="{{sourceType === 'url'}}">
+      <input
+        class="form-input url-input"
+        placeholder="粘贴文章/文档链接，如 https://..."
+        bindinput="onUrlInput"
+        value="{{inputUrl}}"
+        type="url"
+      />
+    </view>
+  </view>
+
+  <!-- 提交按钮 -->
+  <view class="submit-area safe-bottom">
+    <button class="btn-primary submit-btn" bindtap="submit" loading="{{submitting}}" disabled="{{submitting}}">
+      {{submitting ? 'AI 生成中...' : '🚀 开始生成题库'}}
+    </button>
+  </view>
+</view>

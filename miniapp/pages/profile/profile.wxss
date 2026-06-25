@@ -1,0 +1,64 @@
+.container { background: #F5F6FA; min-height: 100vh; padding-bottom: 60rpx; }
+
+/* 用户卡片 */
+.user-card {
+  background: linear-gradient(135deg, #4F7EFF, #7B6FF0);
+  padding: 60rpx 40rpx 80rpx;
+  display: flex;
+  align-items: center;
+  gap: 30rpx;
+}
+.avatar { width: 120rpx; height: 120rpx; border-radius: 50%; border: 4rpx solid rgba(255,255,255,0.6); }
+.user-info { flex: 1; }
+.username { font-size: 40rpx; font-weight: 700; color: #fff; margin-bottom: 12rpx; }
+.user-level { background: rgba(255,255,255,0.25); color: #fff; border: none; font-size: 24rpx; }
+
+/* 数据格子 */
+.stats-grid {
+  margin: -40rpx 30rpx 20rpx;
+  border-radius: 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 32rpx 20rpx;
+  box-shadow: 0 8rpx 32rpx rgba(79,126,255,0.15);
+}
+.stat-item { text-align: center; }
+.stat-num { display: block; font-size: 52rpx; font-weight: 700; }
+.stat-num.blue   { color: #4F7EFF; }
+.stat-num.green  { color: var(--color-success); }
+.stat-num.orange { color: #F57C00; }
+.stat-label { display: block; font-size: 22rpx; color: #999; margin-top: 6rpx; }
+.stat-divider { width: 2rpx; height: 60rpx; background: #EEE; }
+
+/* 详细卡片 */
+.detail-cards { display: flex; flex-wrap: wrap; padding: 0 22rpx; gap: 16rpx; margin-bottom: 20rpx; }
+.detail-card { flex: 1; min-width: 40%; border-radius: 16rpx; padding: 24rpx; display: flex; align-items: center; gap: 16rpx; }
+.dc-icon { font-size: 52rpx; }
+.dc-num { font-size: 44rpx; font-weight: 700; color: #333; }
+.dc-num.red    { color: var(--color-danger); }
+.dc-num.yellow { color: #FAAD14; }
+.dc-num.orange { color: #F57C00; }
+.dc-label { font-size: 22rpx; color: #999; }
+
+/* 快捷入口 */
+.shortcuts { margin: 0 30rpx 20rpx; border-radius: 20rpx; padding: 0 30rpx; }
+.shortcut-item { display: flex; align-items: center; padding: 32rpx 0; gap: 20rpx; }
+.shortcut-divider { height: 2rpx; background: #F0F0F0; }
+.sc-icon { font-size: 44rpx; }
+.sc-label { flex: 1; font-size: 30rpx; color: #333; }
+.sc-badge { background: var(--color-danger); color: #fff; font-size: 20rpx; padding: 4rpx 12rpx; border-radius: 20rpx; font-weight: 600; }
+.sc-arrow { font-size: 40rpx; color: #CCC; }
+
+/* 正确率分布 */
+.accuracy-section { margin: 0 30rpx; border-radius: 20rpx; }
+.as-title { font-size: 30rpx; font-weight: 700; margin-bottom: 24rpx; }
+.as-bar-wrap { margin-bottom: 16rpx; }
+.as-bar { height: 24rpx; border-radius: 12rpx; overflow: hidden; background: #EEE; display: flex; }
+.as-correct { background: var(--color-success); transition: width 0.5s; }
+.as-wrong   { background: var(--color-danger);  transition: width 0.5s; }
+.as-legend { display: flex; gap: 30rpx; }
+.as-item { display: flex; align-items: center; gap: 10rpx; font-size: 24rpx; color: #555; }
+.as-dot { width: 20rpx; height: 20rpx; border-radius: 50%; }
+.as-dot.green { background: var(--color-success); }
+.as-dot.red   { background: var(--color-danger); }

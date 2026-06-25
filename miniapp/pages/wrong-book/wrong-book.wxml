@@ -1,0 +1,71 @@
+<view class="container">
+  <!-- 顶部 tab：错题 / 收藏 -->
+  <view class="tabs">
+    <view class="tab {{activeTab === 'wrong' ? 'active' : ''}}" bindtap="switchTab" data-tab="wrong">错题本 {{wrongList.length > 0 ? '(' + wrongList.length + ')' : ''}}</view>
+    <view class="tab {{activeTab === 'star' ? 'active' : ''}}" bindtap="switchTab" data-tab="star">收藏夹 {{starList.length > 0 ? '(' + starList.length + ')' : ''}}</view>
+  </view>
+
+  <!-- 题库筛选 -->
+  <scroll-view class="bank-filter" scroll-x wx:if="{{banks.length > 1}}">
+    <view class="filter-list">
+      <view class="filter-item {{!filterBankId ? 'active' : ''}}" bindtap="setFilter" data-id="">全部</view>
+      <view
+        wx:for="{{banks}}" wx:key="id"
+        class="filter-item {{filterBankId === item.id ? 'active' : ''}}"
+        bindtap="setFilter"
+        data-id="{{item.id}}"
+      >{{item.name}}</view>
+    </view>
+  </scroll-view>
+
+  <!-- 错题列表 -->
+  <view wx:if="{{activeTab === 'wrong'}}">
+    <view wx:if="{{wrongList.length > 0}}">
+      <view class="tip-bar">共 {{wrongList.length}} 道错题 · <text class="tip-link" bindtap="practiceWrong">一键练错题 ›</text></view>
+      <view class="q-card card" wx:for="{{wrongList}}" wx:key="record_id">
+        <view class="qc-header">
+          <view class="q-type-tag {{item.question.type}}">{{typeLabel[item.question.type]}}</view>
+          <text class="qc-time">{{item.answered_at}}</text>
+        </view>
+        <view class="qc-content">{{item.question.content}}</view>
+        <view class="qc-answer-row">
+          <text class="label wrong-label">我的答案 </text><text class="ans red">{{item.user_answer || '未作答'}}</text>
+          <text class="sep">｜</text>
+          <text class="label correct-label">正确答案 </text><text class="ans green">{{item.question.answer}}</text>
+        </view>
+        <view class="qc-exp" wx:if="{{item.question.explanation}}">
+          <text class="exp-label">解析：</text>{{item.question.explanation}}
+        </view>
+        <view class="qc-tags">
+          <text wx:for="{{item.question.tags}}" wx:key="*this" wx:for-item="tag" class="q-tag">{{tag}}</text>
+        </view>
+      </view>
+    </view>
+    <view class="empty-state" wx:else>
+      <text>🎉 暂无错题，继续保持！</text>
+    </view>
+  </view>
+
+  <!-- 收藏列表 -->
+  <view wx:if="{{activeTab === 'star'}}">
+    <view wx:if="{{starList.length > 0}}">
+      <view class="tip-bar">共 {{starList.length}} 道收藏 · <text class="tip-link" bindtap="practiceStar">一键练收藏 ›</text></view>
+      <view class="q-card card" wx:for="{{starList}}" wx:key="id">
+        <view class="qc-header">
+          <view class="q-type-tag {{item.type}}">{{typeLabel[item.type]}}</view>
+          <view class="star-remove" bindtap="removeStar" data-id="{{item.id}}" data-bank="{{item.bank_id}}">☆ 取消</view>
+        </view>
+        <view class="qc-content">{{item.content}}</view>
+        <view class="qc-answer-row">
+          <text class="label correct-label">正确答案 </text><text class="ans green">{{item.answer}}</text>
+        </view>
+        <view class="qc-exp" wx:if="{{item.explanation}}">
+          <text class="exp-label">解析：</text>{{item.explanation}}
+        </view>
+      </view>
+    </view>
+    <view class="empty-state" wx:else>
+      <text>还没有收藏，练习时点 ☆ 收藏难题</text>
+    </view>
+  </view>
+</view>

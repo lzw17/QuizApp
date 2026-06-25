@@ -1,0 +1,55 @@
+<view class="container">
+  <!-- 分数圆环 -->
+  <view class="score-section {{result.passed ? 'pass' : 'fail'}}">
+    <view class="score-ring">
+      <text class="score-num">{{result.score}}</text>
+      <text class="score-unit">分</text>
+    </view>
+    <view class="pass-label">{{result.passed ? '🎉 恭喜通过！' : '😢 未通过，继续加油'}}</view>
+    <view class="score-stats">
+      <view class="sstat">
+        <text class="sstat-num">{{result.total}}</text>
+        <text class="sstat-label">总题数</text>
+      </view>
+      <view class="sstat">
+        <text class="sstat-num green">{{result.correct}}</text>
+        <text class="sstat-label">答对</text>
+      </view>
+      <view class="sstat">
+        <text class="sstat-num red">{{result.wrong}}</text>
+        <text class="sstat-label">答错</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 操作按钮 -->
+  <view class="action-row">
+    <button class="btn-outline action-btn" bindtap="goBack">返回题库</button>
+    <button class="btn-primary action-btn" bindtap="reviewWrong" wx:if="{{result.wrong > 0}}">复习错题 ({{result.wrong}})</button>
+  </view>
+
+  <!-- 错题列表 -->
+  <view class="wrong-list" wx:if="{{wrongItems.length > 0}}">
+    <view class="section-title">错题解析</view>
+    <view class="wrong-item card" wx:for="{{wrongItems}}" wx:key="question_id">
+      <view class="wi-header">
+        <text class="wi-num">第 {{index + 1}} 题</text>
+        <view class="wi-type q-type-tag {{item.type}}">{{typeLabel[item.type]}}</view>
+      </view>
+      <view class="wi-content">{{item.content}}</view>
+      <view class="wi-answers">
+        <view class="wi-row">
+          <text class="wi-label wrong-label">我的答案：</text>
+          <text class="wi-ans red">{{item.user_answer || '未作答'}}</text>
+        </view>
+        <view class="wi-row">
+          <text class="wi-label correct-label">正确答案：</text>
+          <text class="wi-ans green">{{item.correct_answer}}</text>
+        </view>
+      </view>
+      <view class="wi-exp" wx:if="{{item.explanation}}">
+        <text class="exp-label">【解析】</text>{{item.explanation}}
+      </view>
+    </view>
+  </view>
+</view>

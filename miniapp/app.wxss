@@ -1,0 +1,115 @@
+/* 全局样式 */
+page {
+  background-color: #F5F6FA;
+  font-family: -apple-system, "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+  font-size: 28rpx;
+  color: #333333;
+  box-sizing: border-box;
+}
+
+/* CSS 变量 */
+page {
+  --color-primary: #4F7EFF;
+  --color-primary-light: #EEF2FF;
+  --color-success: #18C971;
+  --color-danger: #FF4D4F;
+  --color-warning: #FAAD14;
+  --color-text: #333333;
+  --color-text-secondary: #666666;
+  --color-text-placeholder: #BBBBBB;
+  --color-border: #EEEEEE;
+  --color-bg: #F5F6FA;
+  --color-white: #FFFFFF;
+  --radius-sm: 8rpx;
+  --radius-md: 16rpx;
+  --radius-lg: 24rpx;
+  --shadow: 0 4rpx 20rpx rgba(0,0,0,0.08);
+}
+
+/* 通用卡片 */
+.card {
+  background: #FFFFFF;
+  border-radius: var(--radius-md);
+  padding: 30rpx;
+  box-shadow: var(--shadow);
+}
+
+/* 通用按钮 */
+.btn-primary {
+  background: var(--color-primary);
+  color: #FFFFFF;
+  border-radius: 50rpx;
+  font-size: 30rpx;
+  font-weight: 600;
+  border: none;
+  padding: 0 60rpx;
+  height: 88rpx;
+  line-height: 88rpx;
+}
+
+.btn-primary::after { border: none; }
+
+.btn-outline {
+  background: transparent;
+  color: var(--color-primary);
+  border: 2rpx solid var(--color-primary);
+  border-radius: 50rpx;
+  font-size: 30rpx;
+  padding: 0 60rpx;
+  height: 88rpx;
+  line-height: 88rpx;
+}
+
+.btn-outline::after { border: none; }
+
+.btn-danger {
+  background: var(--color-danger);
+  color: #FFFFFF;
+  border-radius: 50rpx;
+  font-size: 30rpx;
+  border: none;
+  padding: 0 60rpx;
+  height: 88rpx;
+  line-height: 88rpx;
+}
+
+.btn-danger::after { border: none; }
+
+/* 标签徽章 */
+.tag {
+  display: inline-block;
+  padding: 4rpx 16rpx;
+  border-radius: 20rpx;
+  font-size: 22rpx;
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.tag-success { background: #E8F8EF; color: var(--color-success); }
+.tag-danger  { background: #FFF1F1; color: var(--color-danger); }
+.tag-warning { background: #FFF7E0; color: var(--color-warning); }
+
+/* 难度星 */
+.difficulty-dot {
+  display: inline-block;
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+  background: #DDD;
+  margin-right: 6rpx;
+}
+.difficulty-dot.active { background: var(--color-warning); }
+
+/* 安全底部间距 */
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+/* 空状态 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 100rpx 0;
+  color: var(--color-text-placeholder);
+}
+.empty-state image { width: 200rpx; height: 200rpx; margin-bottom: 24rpx; }
+.empty-state text { font-size: 28rpx; }

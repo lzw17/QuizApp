@@ -1,0 +1,115 @@
+<view class="container" wx:if="{{question}}">
+  <!-- 顶栏 -->
+  <view class="top-bar">
+    <view class="progress-info">
+      <text class="q-index">{{currentIndex + 1}}</text>
+      <text class="q-sep">/</text>
+      <text class="q-total">{{total || '?'}}</text>
+    </view>
+    <view class="mode-tag tag">{{modeLabel}}</view>
+    <view class="star-btn" bindtap="toggleStar">
+      {{isStarred ? '★' : '☆'}}
+    </view>
+  </view>
+
+  <!-- 进度条 -->
+  <view class="q-progress-bar">
+    <view class="q-progress-fill" style="width:{{total ? ((currentIndex+1)/total*100).toFixed(0) : 0}}%"></view>
+  </view>
+
+  <!-- 题目卡片 -->
+  <view class="question-card">
+    <!-- 题型 + 难度 -->
+    <view class="q-meta">
+      <text class="q-type-tag {{question.type}}">{{typeLabel[question.type]}}</text>
+      <view class="q-difficulty">
+        <view wx:for="{{[1,2,3,4,5]}}" wx:key="*this"
+          class="difficulty-dot {{item <= question.difficulty ? 'active' : ''}}">
+        </view>
+      </view>
+      <view class="q-tags">
+        <text wx:for="{{question.tags}}" wx:key="*this" class="q-tag">{{item}}</text>
+      </view>
+    </view>
+
+    <!-- 题干 -->
+    <view class="q-content">{{question.content}}</view>
+
+    <!-- 选项 -->
+    <view class="options">
+      <view
+        wx:for="{{question.options}}" wx:key="key"
+        class="option {{getOptionClass(item.key)}}"
+        bindtap="selectOption"
+        data-key="{{item.key}}"
+      >
+        <view class="option-key">{{item.key}}</view>
+        <view class="option-text">{{item.text}}</view>
+        <view class="option-icon" wx:if="{{answered}}">
+          <text wx:if="{{isCorrectOption(item.key)}}">✓</text>
+          <text wx:elif="{{item.key === selectedAnswer}}">✗</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 解析（答题后展示） -->
+    <view class="explanation" wx:if="{{answered}}">
+      <view class="exp-header">
+        <view class="exp-result {{isCorrect ? 'correct' : 'wrong'}}">
+          {{isCorrect ? '✓ 回答正确' : '✗ 回答错误'}}
+        </view>
+        <text class="exp-rate">正确率 {{(correctRate * 100).toFixed(0)}}%</text>
+      </view>
+      <view class="exp-content">
+        <text class="exp-label">【解析】</text>{{question.explanation || '暂无解析'}}
+      </view>
+    </view>
+  </view>
+
+  <!-- 底部按钮 -->
+  <view class="bottom-bar safe-bottom">
+    <button class="btn-prev" bindtap="prevQuestion" disabled="{{currentIndex === 0}}">‹</button>
+    <button
+      wx:if="{{!answered}}"
+      class="btn-primary confirm-btn"
+      bindtap="confirmAnswer"
+      disabled="{{!selectedAnswer}}"
+    >确认答案</button>
+    <button
+      wx:else
+      class="btn-primary next-btn"
+      bindtap="nextQuestion"
+    >{{isLast ? '完成' : '下一题 ›'}}</button>
+    <button class="btn-prev" bindtap="nextQuestion" wx:if="{{!answered}}">›</button>
+  </view>
+</view>
+
+<!-- 加载中 -->
+<view class="loading-page" wx:if="{{loading}}">
+  <view class="loading-dot"></view>
+  <text style="margin-top:20rpx;color:#999;">加载题目...</text>
+</view>
+
+<!-- 完成页 -->
+<view class="done-page" wx:if="{{done}}">
+  <view class="done-emoji">🎊</view>
+  <view class="done-title">练习完成！</view>
+  <view class="done-stats">
+    <view class="dstat">
+      <text class="dstat-num">{{sessionTotal}}</text>
+      <text class="dstat-label">作答</text>
+    </view>
+    <view class="dstat">
+      <text class="dstat-num green">{{sessionCorrect}}</text>
+      <text class="dstat-label">正确</text>
+    </view>
+    <view class="dstat">
+      <text class="dstat-num">{{sessionTotal ? (sessionCorrect/sessionTotal*100).toFixed(0) : 0}}%</text>
+      <text class="dstat-label">正确率</text>
+    </view>
+  </view>
+  <view class="done-btns">
+    <button class="btn-outline" bindtap="goBack">返回题库</button>
+    <button class="btn-primary" bindtap="restart">再来一遍</button>
+  </view>
+</view>

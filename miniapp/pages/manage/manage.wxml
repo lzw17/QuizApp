@@ -1,0 +1,62 @@
+<view class="container">
+  <!-- 题库列表（含 pending 状态） -->
+  <view class="section-title">所有题库</view>
+  <view class="bank-list">
+    <view class="bank-item card" wx:for="{{banks}}" wx:key="id">
+      <view class="bi-info">
+        <view class="bi-name">{{item.name}}</view>
+        <view class="bi-meta">
+          <text class="bi-count">{{item.total_count}} 题</text>
+          <view class="bi-status tag {{item.status}}">{{statusLabel[item.status]}}</view>
+        </view>
+      </view>
+      <view class="bi-actions">
+        <view class="action-btn edit-btn" bindtap="editBank" data-id="{{item.id}}" wx:if="{{item.status === 'ready'}}">编辑题目</view>
+        <view class="action-btn del-btn" bindtap="deleteBank" data-id="{{item.id}}">删除</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 题目编辑弹层 -->
+  <view class="modal-mask" wx:if="{{editingBankId}}" bindtap="closeModal"></view>
+  <view class="modal {{editingBankId ? 'show' : ''}}">
+    <view class="modal-header">
+      <text class="modal-title">题目列表</text>
+      <text class="modal-close" bindtap="closeModal">✕</text>
+    </view>
+    <scroll-view class="modal-scroll" scroll-y>
+      <view class="q-edit-item" wx:for="{{editQuestions}}" wx:key="id">
+        <view class="qe-type tag">{{typeLabel[item.type]}}</view>
+        <view class="qe-content">{{item.content}}</view>
+        <view class="qe-answer">答案：<text class="ans-text">{{item.answer}}</text></view>
+        <view class="qe-actions">
+          <view class="qe-btn" bindtap="showEditForm" data-q="{{item}}">✏️ 编辑</view>
+          <view class="qe-btn danger" bindtap="deleteQuestion" data-id="{{item.id}}">🗑️ 删除</view>
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+
+  <!-- 题目编辑表单弹层 -->
+  <view class="form-modal" wx:if="{{editForm}}">
+    <view class="fm-header">
+      <text class="fm-title">编辑题目</text>
+      <text bindtap="closeForm">✕</text>
+    </view>
+    <view class="fm-body">
+      <view class="fm-item">
+        <text class="fm-label">题干</text>
+        <textarea class="fm-textarea" value="{{editForm.content}}" bindinput="onEditContent" />
+      </view>
+      <view class="fm-item">
+        <text class="fm-label">正确答案</text>
+        <input class="fm-input" value="{{editForm.answer}}" bindinput="onEditAnswer" placeholder="如 A 或 AB" />
+      </view>
+      <view class="fm-item">
+        <text class="fm-label">解析</text>
+        <textarea class="fm-textarea" value="{{editForm.explanation}}" bindinput="onEditExp" />
+      </view>
+      <button class="btn-primary" bindtap="saveEdit">保存</button>
+    </view>
+  </view>
+</view>

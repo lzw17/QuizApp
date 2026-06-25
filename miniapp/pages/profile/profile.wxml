@@ -1,0 +1,97 @@
+<view class="container">
+  <!-- 用户信息 -->
+  <view class="user-card">
+    <image class="avatar" src="{{userInfo.avatar || '/images/default-avatar.png'}}" mode="aspectFill" />
+    <view class="user-info">
+      <view class="username">{{userInfo.nickname || '未登录'}}</view>
+      <view class="user-level tag">{{levelLabel}}</view>
+    </view>
+  </view>
+
+  <!-- 核心数据 -->
+  <view class="stats-grid card">
+    <view class="stat-item">
+      <text class="stat-num blue">{{stats.total_answered || 0}}</text>
+      <text class="stat-label">累计答题</text>
+    </view>
+    <view class="stat-divider"></view>
+    <view class="stat-item">
+      <text class="stat-num green">{{stats.accuracy ? (stats.accuracy * 100).toFixed(1) + '%' : '--'}}</text>
+      <text class="stat-label">总正确率</text>
+    </view>
+    <view class="stat-divider"></view>
+    <view class="stat-item">
+      <text class="stat-num orange">{{stats.today_answered || 0}}</text>
+      <text class="stat-label">今日练习</text>
+    </view>
+  </view>
+
+  <!-- 详细统计卡片 -->
+  <view class="detail-cards">
+    <view class="detail-card card">
+      <view class="dc-icon">📚</view>
+      <view class="dc-content">
+        <view class="dc-num">{{stats.banks_studied || 0}}</view>
+        <view class="dc-label">学习过的题库</view>
+      </view>
+    </view>
+    <view class="detail-card card">
+      <view class="dc-icon">❌</view>
+      <view class="dc-content">
+        <view class="dc-num red">{{stats.wrong_count || 0}}</view>
+        <view class="dc-label">错题数量</view>
+      </view>
+    </view>
+    <view class="detail-card card">
+      <view class="dc-icon">⭐</view>
+      <view class="dc-content">
+        <view class="dc-num yellow">{{stats.starred_count || 0}}</view>
+        <view class="dc-label">收藏题目</view>
+      </view>
+    </view>
+    <view class="detail-card card">
+      <view class="dc-icon">🔥</view>
+      <view class="dc-content">
+        <view class="dc-num orange">{{stats.streak_days || 0}}</view>
+        <view class="dc-label">连续天数</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 快捷入口 -->
+  <view class="shortcuts card">
+    <view class="shortcut-item" bindtap="goWrongBook">
+      <view class="sc-icon">📖</view>
+      <text class="sc-label">错题本</text>
+      <text class="sc-badge" wx:if="{{stats.wrong_count > 0}}">{{stats.wrong_count}}</text>
+      <text class="sc-arrow">›</text>
+    </view>
+    <view class="shortcut-divider"></view>
+    <view class="shortcut-item" bindtap="goUpload">
+      <view class="sc-icon">📤</view>
+      <text class="sc-label">导入资料</text>
+      <text class="sc-arrow">›</text>
+    </view>
+    <view class="shortcut-divider"></view>
+    <view class="shortcut-item" bindtap="goManage" wx:if="{{userInfo.is_admin}}">
+      <view class="sc-icon">⚙️</view>
+      <text class="sc-label">题库管理</text>
+      <text class="sc-arrow">›</text>
+    </view>
+  </view>
+
+  <!-- 正确率进度展示 -->
+  <view class="accuracy-section card" wx:if="{{stats.total_answered > 0}}">
+    <view class="as-title">答题分布</view>
+    <view class="as-bar-wrap">
+      <view class="as-bar">
+        <view class="as-correct" style="width:{{(stats.accuracy * 100).toFixed(0)}}%"></view>
+        <view class="as-wrong" style="width:{{((1 - stats.accuracy) * 100).toFixed(0)}}%"></view>
+      </view>
+    </view>
+    <view class="as-legend">
+      <view class="as-item green"><view class="as-dot green"></view>答对 {{stats.correct_count}}</view>
+      <view class="as-item red"><view class="as-dot red"></view>答错 {{stats.wrong_count}}</view>
+    </view>
+  </view>
+</view>
