@@ -43,14 +43,10 @@ Page({
   async _loadQuestions(skip = 0) {
     this.setData({ loading: true });
     try {
-      const params = new URLSearchParams({
-        bank_id: this.data.bankId,
-        mode: this.data.mode === 'tag' ? 'sequential' : this.data.mode,
-        skip,
-        limit: 50,
-      });
-      if (this.data.tag) params.append('tag', this.data.tag);
-      const list = await request({ url: `/api/questions?${params}` });
+      const mode = this.data.mode === 'tag' ? 'sequential' : this.data.mode;
+      let query = `bank_id=${this.data.bankId}&mode=${mode}&skip=${skip}&limit=50`;
+      if (this.data.tag) query += `&tag=${encodeURIComponent(this.data.tag)}`;
+      const list = await request({ url: `/api/questions?${query}` });
       this.setData({
         questions: list,
         total: list.length,

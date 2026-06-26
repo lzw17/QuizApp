@@ -41,9 +41,9 @@ Page({
     const skip = reset ? 0 : this.data.page * 20;
     this.setData({ loading: true });
     try {
-      const params = new URLSearchParams({ skip, limit: 20 });
-      if (this.data.activeCategory) params.append('category', this.data.activeCategory);
-      const banks = await request({ url: `/api/banks?${params}` });
+      let query = `skip=${skip}&limit=20`;
+      if (this.data.activeCategory) query += `&category=${encodeURIComponent(this.data.activeCategory)}`;
+      const banks = await request({ url: `/api/banks?${query}` });
       const merged = reset ? banks : [...this.data.banks, ...banks];
       // 收集分类
       const catSet = new Set(merged.map(b => b.category).filter(Boolean));
