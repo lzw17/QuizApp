@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
     DEEPSEEK_MODEL: str = "deepseek-chat"
 
+    # WeChat Mini Program
+    WX_APPID: str = ""
+    WX_SECRET: str = ""
+
     # MinerU 解析服务（可选）
     MINERU_API_KEY: Optional[str] = None
     MINERU_API_URL: str = "https://mineru.net/api/v4"

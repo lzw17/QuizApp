@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from ..database import get_db
+from ..models.question import Question
 from ..models.user import UserProgress
 from ..schemas.user import AnswerSubmit, AnswerResult, UserStatsOut, UserProgressOut
 from ..services.question_service import (
@@ -56,6 +57,8 @@ class ExamSubmitRequest(BaseModel):
 
 class ExamResultItem(BaseModel):
     question_id: int
+    type: str
+    content: str
     is_correct: bool
     correct_answer: str
     user_answer: str
@@ -88,8 +91,11 @@ def submit_exam(data: ExamSubmitRequest, db: Session = Depends(get_db)):
         )
         try:
             result = submit_answer(db, submit)
+            question = db.query(Question).filter(Question.id == item.question_id).first()
             results.append(ExamResultItem(
                 question_id=item.question_id,
+                type=question.type if question else "single",
+                content=question.content if question else "",
                 is_correct=result.is_correct,
                 correct_answer=result.correct_answer,
                 user_answer=item.user_answer,

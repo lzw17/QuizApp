@@ -15,6 +15,7 @@ from sqlalchemy import func as sa_func
 
 from ..database import get_db
 from ..models.question import QuestionBank, Question, BankStatus
+from ..models.user import AnswerRecord, UserProgress
 from ..schemas.question import QuestionBankListItem, QuestionBankOut, QuestionOut, QuestionCreate
 
 router = APIRouter(prefix="/api", tags=["questions"])
@@ -82,6 +83,7 @@ def get_bank_tags(bank_id: int, db: Session = Depends(get_db)):
 def get_questions(
     bank_id: int = Query(...),
     mode: str = Query("sequential", description="sequential/random/wrong/starred"),
+    user_id: Optional[int] = None,
     tag: Optional[str] = None,
     difficulty: Optional[int] = Query(None, ge=1, le=5),
     skip: int = Query(0, ge=0),
@@ -92,6 +94,37 @@ def get_questions(
         Question.bank_id == bank_id,
         Question.status == "active",
     )
+
+    ordered_ids: Optional[List[int]] = None
+    if mode == "wrong":
+        if not user_id:
+            raise HTTPException(400, "错题练习需要 user_id")
+        records = db.query(AnswerRecord).filter(
+            AnswerRecord.user_id == user_id,
+            AnswerRecord.bank_id == bank_id,
+            AnswerRecord.is_correct == False,
+        ).order_by(AnswerRecord.answered_at.desc()).all()
+        ordered_ids = []
+        seen = set()
+        for record in records:
+            if record.question_id not in seen:
+                seen.add(record.question_id)
+                ordered_ids.append(record.question_id)
+        if not ordered_ids:
+            return []
+        query = query.filter(Question.id.in_(ordered_ids))
+    elif mode == "starred":
+        if not user_id:
+            raise HTTPException(400, "收藏练习需要 user_id")
+        progress = db.query(UserProgress).filter(
+            UserProgress.user_id == user_id,
+            UserProgress.bank_id == bank_id,
+        ).first()
+        ordered_ids = list(progress.starred_ids or []) if progress else []
+        if not ordered_ids:
+            return []
+        query = query.filter(Question.id.in_(ordered_ids))
+
     if tag:
         query = query.filter(Question.tags.contains(f'"{tag}"'))
     if difficulty:
@@ -99,6 +132,11 @@ def get_questions(
 
     if mode == "random":
         query = query.order_by(sa_func.random())
+    elif ordered_ids is not None:
+        questions = query.all()
+        by_id = {q.id: q for q in questions}
+        ordered = [by_id[qid] for qid in ordered_ids if qid in by_id]
+        return ordered[skip:skip + limit]
     else:
         query = query.order_by(Question.order_index)
 

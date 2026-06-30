@@ -1,4 +1,4 @@
-const { request } = require('../../utils/request');
+const { request, getUserId } = require('../../utils/request');
 const app = getApp();
 
 Page({
@@ -27,7 +27,7 @@ Page({
   },
 
   async _loadProgress() {
-    const uid = app.globalData.userId;
+    const uid = await getUserId();
     if (!uid || !this.data.bankId) return;
     try {
       const p = await request({ url: `/api/progress/${this.data.bankId}?user_id=${uid}` });

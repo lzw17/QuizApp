@@ -27,6 +27,15 @@ function request(options) {
   });
 }
 
+function getUserId() {
+  const cached = app.globalData.userId || (wx.getStorageSync('userInfo') || {}).id;
+  if (cached) return Promise.resolve(cached);
+  if (typeof app.ensureLogin === 'function') {
+    return app.ensureLogin().then(user => user && user.id);
+  }
+  return Promise.resolve(null);
+}
+
 /** 上传文件（multipart/form-data） */
 function uploadFile(filePath, formData = {}) {
   return new Promise((resolve, reject) => {
@@ -37,7 +46,13 @@ function uploadFile(filePath, formData = {}) {
       formData,
       success(res) {
         const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
-        resolve(data);
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(data);
+        } else {
+          const msg = (data && data.detail) || `上传失败 (${res.statusCode})`;
+          wx.showToast({ title: msg, icon: 'none' });
+          reject(new Error(msg));
+        }
       },
       fail: reject,
     });
@@ -63,7 +78,7 @@ function pollTask(taskId, onProgress, onDone, onError) {
       } else {
         timer = setTimeout(poll, 1500);
       }
-    }).catch(err => {
+    }).catch(() => {
       if (!stopped) {
         timer = setTimeout(poll, 3000);
       }
@@ -74,4 +89,4 @@ function pollTask(taskId, onProgress, onDone, onError) {
   return () => { stopped = true; clearTimeout(timer); };
 }
 
-module.exports = { request, uploadFile, pollTask };
+module.exports = { request, uploadFile, pollTask, getUserId };

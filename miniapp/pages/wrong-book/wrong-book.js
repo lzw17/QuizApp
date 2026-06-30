@@ -1,4 +1,4 @@
-const { request } = require('../../utils/request');
+const { request, getUserId } = require('../../utils/request');
 const app = getApp();
 
 Page({
@@ -32,11 +32,15 @@ Page({
   },
 
   async _loadAll() {
-    await Promise.all([this._loadWrong(), this._loadBanks()]);
+    await this._loadBanks();
+    await this._loadWrong();
+    if (this.data.activeTab === 'star') {
+      await this._loadStars();
+    }
   },
 
   async _loadWrong() {
-    const uid = app.globalData.userId;
+    const uid = await getUserId();
     if (!uid) return;
     try {
       let url = `/api/wrong-questions?user_id=${uid}`;
@@ -50,7 +54,7 @@ Page({
   },
 
   async _loadStars() {
-    const uid = app.globalData.userId;
+    const uid = await getUserId();
     if (!uid) return;
     const { banks } = this.data;
     const starQuestions = [];
@@ -78,7 +82,8 @@ Page({
   },
 
   async removeStar(e) {
-    const uid = app.globalData.userId;
+    const uid = await getUserId();
+    if (!uid) return;
     const { id, bank } = e.currentTarget.dataset;
     try {
       await request({ url: '/api/star', method: 'POST', data: { user_id: uid, bank_id: bank, question_id: id } });

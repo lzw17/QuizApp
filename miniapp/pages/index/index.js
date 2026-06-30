@@ -1,4 +1,4 @@
-const { request } = require('../../utils/request');
+const { request, getUserId } = require('../../utils/request');
 const app = getApp();
 
 Page({
@@ -60,8 +60,9 @@ Page({
   },
 
   async _loadStats() {
-    const uid = app.globalData.userId;
+    const uid = await getUserId();
     if (!uid) return;
+    this.setData({ userId: uid });
     try {
       const stats = await request({ url: `/api/stats?user_id=${uid}` });
       this.setData({ stats });

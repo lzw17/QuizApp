@@ -1,4 +1,4 @@
-const { request } = require('../../utils/request');
+const { request, getUserId } = require('../../utils/request');
 const app = getApp();
 
 Page({
@@ -21,6 +21,7 @@ Page({
     sessionTotal: 0,
     sessionCorrect: 0,
     isLast: false,
+    startSkip: 0,
     modeLabel: '',
     typeLabel: { single: '单选', multi: '多选', judge: '判断' },
   },
@@ -30,21 +31,32 @@ Page({
   onLoad(options) {
     const { bank_id, mode, tag, skip } = options;
     const modeLabels = { sequential: '顺序练习', random: '随机练习', tag: `「${decodeURIComponent(tag || '')}」`, wrong: '错题复习', starred: '收藏练习' };
+    const startSkip = parseInt(skip) || 0;
     this.setData({
       bankId: parseInt(bank_id),
       mode,
       tag: decodeURIComponent(tag || ''),
+      startSkip,
       modeLabel: modeLabels[mode] || '练习',
     });
-    this._loadQuestions(parseInt(skip) || 0);
+    this._loadQuestions(startSkip);
     this._loadProgress();
   },
 
   async _loadQuestions(skip = 0) {
-    this.setData({ loading: true });
+    this.setData({ loading: true, startSkip: skip });
     try {
       const mode = this.data.mode === 'tag' ? 'sequential' : this.data.mode;
       let query = `bank_id=${this.data.bankId}&mode=${mode}&skip=${skip}&limit=50`;
+      if (mode === 'wrong' || mode === 'starred') {
+        const uid = await getUserId();
+        if (!uid) {
+          wx.showToast({ title: '登录失败，请重试', icon: 'none' });
+          this.setData({ loading: false, done: true });
+          return;
+        }
+        query += `&user_id=${uid}`;
+      }
       if (this.data.tag) query += `&tag=${encodeURIComponent(this.data.tag)}`;
       const list = await request({ url: `/api/questions?${query}` });
       this.setData({
@@ -63,11 +75,15 @@ Page({
   },
 
   async _loadProgress() {
-    const uid = app.globalData.userId;
+    const uid = await getUserId();
     if (!uid) return;
     try {
       const p = await request({ url: `/api/progress/${this.data.bankId}?user_id=${uid}` });
-      this.setData({ starredIds: p.starred_ids || [] });
+      const starredIds = p.starred_ids || [];
+      this.setData({
+        starredIds,
+        isStarred: this.data.question ? starredIds.includes(this.data.question.id) : false,
+      });
     } catch {}
   },
 
@@ -108,7 +124,11 @@ Page({
   async confirmAnswer() {
     const { question, selectedAnswer, bankId, sessionTotal, sessionCorrect } = this.data;
     if (!selectedAnswer) return;
-    const uid = app.globalData.userId;
+    const uid = await getUserId();
+    if (!uid) {
+      wx.showToast({ title: '登录失败，请重试', icon: 'none' });
+      return;
+    }
     const timeSpent = Math.round((Date.now() - this._startTime) / 1000);
 
     try {
@@ -116,7 +136,7 @@ Page({
         url: '/api/answer',
         method: 'POST',
         data: {
-          user_id: uid || 1,
+          user_id: uid,
           question_id: question.id,
           bank_id: bankId,
           user_answer: selectedAnswer,
@@ -136,7 +156,7 @@ Page({
         request({
           url: '/api/progress',
           method: 'POST',
-          data: { user_id: uid || 1, bank_id: bankId, position: this.data.currentIndex },
+          data: { user_id: uid, bank_id: bankId, position: this.data.startSkip + this.data.currentIndex + 1 },
         }).catch(() => {});
       }
     } catch {}
@@ -158,7 +178,7 @@ Page({
   },
 
   async toggleStar() {
-    const uid = app.globalData.userId;
+    const uid = await getUserId();
     if (!uid) return;
     try {
       const result = await request({
@@ -166,7 +186,10 @@ Page({
         method: 'POST',
         data: { user_id: uid, bank_id: this.data.bankId, question_id: this.data.question.id },
       });
-      this.setData({ isStarred: result.is_starred });
+      const starredIds = result.is_starred
+        ? [...new Set([...this.data.starredIds, this.data.question.id])]
+        : this.data.starredIds.filter(id => id !== this.data.question.id);
+      this.setData({ isStarred: result.is_starred, starredIds });
       wx.showToast({ title: result.is_starred ? '已收藏' : '已取消收藏', icon: 'none', duration: 1000 });
     } catch {}
   },

@@ -11,6 +11,7 @@ import asyncio
 import aiofiles
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db, SessionLocal
@@ -23,6 +24,15 @@ from ..config import settings
 router = APIRouter(prefix="/api", tags=["upload"])
 
 ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx"}
+
+
+class UrlUploadRequest(BaseModel):
+    url: str
+    bank_name: str = ""
+    bank_description: str = ""
+    bank_category: str = ""
+    num_direct: int = 3
+    num_logic: int = 2
 
 
 def _get_source_type(filename: str) -> str:
@@ -96,24 +106,20 @@ async def upload_file(
 @router.post("/upload/url", response_model=UploadResponse)
 async def upload_url(
     background_tasks: BackgroundTasks,
-    url: str = Form(...),
-    bank_name: str = Form(""),
-    bank_description: str = Form(""),
-    bank_category: str = Form(""),
-    num_direct: int = Form(3),
-    num_logic: int = Form(2),
+    data: UrlUploadRequest,
     db: Session = Depends(get_db),
 ):
     """提交 URL，爬取页面内容并生成题库"""
+    url = data.url.strip()
     if not url.startswith(("http://", "https://")):
         raise HTTPException(400, "请输入有效的 HTTP/HTTPS URL")
 
     task_id = str(uuid.uuid4())
 
     bank_data = QuestionBankCreate(
-        name=bank_name or url[:50],
-        description=bank_description,
-        category=bank_category,
+        name=data.bank_name or url[:50],
+        description=data.bank_description,
+        category=data.bank_category,
     )
     bank = create_bank(db, bank_data)
     bank.source_file = url
@@ -131,8 +137,8 @@ async def upload_url(
         file_path=url,
         source_type="url",
         db_factory=SessionLocal,
-        num_direct=num_direct,
-        num_logic=num_logic,
+        num_direct=data.num_direct,
+        num_logic=data.num_logic,
     )
 
     return UploadResponse(task_id=task_id, bank_id=bank.id, message="URL 提交成功，正在生成题库...")

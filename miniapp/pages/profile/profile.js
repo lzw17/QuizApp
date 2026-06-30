@@ -1,4 +1,4 @@
-const { request } = require('../../utils/request');
+const { request, getUserId } = require('../../utils/request');
 const app = getApp();
 
 Page({
@@ -16,7 +16,7 @@ Page({
     const userInfo = app.globalData.userInfo || wx.getStorageSync('userInfo') || {};
     this.setData({ userInfo });
 
-    const uid = app.globalData.userId;
+    const uid = await getUserId();
     if (!uid) return;
     try {
       const stats = await request({ url: `/api/stats?user_id=${uid}` });

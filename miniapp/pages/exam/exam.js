@@ -1,4 +1,4 @@
-const { request } = require('../../utils/request');
+const { request, getUserId } = require('../../utils/request');
 const app = getApp();
 
 Page({
@@ -131,7 +131,12 @@ Page({
   async _doSubmit() {
     this._clearTimer();
     wx.showLoading({ title: '评分中...' });
-    const uid = app.globalData.userId || 1;
+    const uid = await getUserId();
+    if (!uid) {
+      wx.hideLoading();
+      wx.showToast({ title: '登录失败，请重试', icon: 'none' });
+      return;
+    }
     const answers = this.data.questions.map((q, i) => ({
       question_id: q.id,
       user_answer: this.data.userAnswers[i] || '',
