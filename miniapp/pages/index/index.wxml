@@ -1,3 +1,4 @@
+<wxs src="../../utils/format.wxs" module="fmt" />
 <view class="container">
   <!-- 顶部 Banner -->
   <view class="header">
@@ -21,7 +22,7 @@
     </view>
     <view class="streak-divider"></view>
     <view class="streak-right">
-      <text class="streak-num">{{stats.accuracy ? (stats.accuracy * 100).toFixed(0) + '%' : '--'}}</text>
+      <text class="streak-num">{{fmt.accuracyStr(stats.accuracy)}}</text>
       <text class="streak-label">正确率</text>
     </view>
   </view>

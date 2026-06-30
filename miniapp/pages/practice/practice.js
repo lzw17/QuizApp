@@ -24,6 +24,7 @@ Page({
     startSkip: 0,
     modeLabel: '',
     typeLabel: { single: '单选', multi: '多选', judge: '判断' },
+    userAnswers: {},
   },
 
   _startTime: 0,
@@ -87,20 +88,32 @@ Page({
     } catch {}
   },
 
+  _saveCurrentState() {
+    const { question, selectedAnswer, answered, isCorrect, correctRate, userAnswers } = this.data;
+    if (!question) return;
+    const updated = Object.assign({}, userAnswers);
+    updated[question.id] = { selectedAnswer, answered, isCorrect, correctRate };
+    this.setData({ userAnswers: updated });
+  },
+
   _showQuestion(index) {
     const q = this.data.questions[index];
     if (!q) return;
     const isStarred = this.data.starredIds.includes(q.id);
+    const saved = this.data.userAnswers[q.id];
     this.setData({
       currentIndex: index,
       question: q,
-      selectedAnswer: '',
-      answered: false,
-      isCorrect: false,
+      selectedAnswer: saved ? saved.selectedAnswer : '',
+      answered: saved ? saved.answered : false,
+      isCorrect: saved ? saved.isCorrect : false,
+      correctRate: saved ? saved.correctRate : 0,
       isStarred,
       isLast: index === this.data.questions.length - 1,
     });
-    this._startTime = Date.now();
+    if (!saved || !saved.answered) {
+      this._startTime = Date.now();
+    }
   },
 
   selectOption(e) {
@@ -163,6 +176,7 @@ Page({
   },
 
   nextQuestion() {
+    this._saveCurrentState();
     const next = this.data.currentIndex + 1;
     if (next >= this.data.questions.length) {
       this.setData({ done: true });
@@ -172,9 +186,9 @@ Page({
   },
 
   prevQuestion() {
-    if (this.data.currentIndex > 0) {
-      this._showQuestion(this.data.currentIndex - 1);
-    }
+    if (this.data.currentIndex === 0) return;
+    this._saveCurrentState();
+    this._showQuestion(this.data.currentIndex - 1);
   },
 
   async toggleStar() {
@@ -211,7 +225,7 @@ Page({
   },
 
   restart() {
-    this.setData({ done: false, sessionTotal: 0, sessionCorrect: 0 });
+    this.setData({ done: false, sessionTotal: 0, sessionCorrect: 0, userAnswers: {} });
     this._loadQuestions(0);
   },
 

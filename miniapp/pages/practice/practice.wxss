@@ -4,26 +4,32 @@
 .top-bar {
   display: flex;
   align-items: center;
-  padding: 24rpx 30rpx;
+  padding: 20rpx 30rpx;
   background: #fff;
   border-bottom: 2rpx solid #F0F0F0;
   gap: 16rpx;
 }
-.progress-info { display: flex; align-items: baseline; gap: 4rpx; }
-.q-index { font-size: 40rpx; font-weight: 700; color: #4F7EFF; }
-.q-sep, .q-total { font-size: 26rpx; color: #999; }
+.progress-info { display: flex; align-items: baseline; gap: 4rpx; flex-shrink: 0; }
+.q-index { font-size: 38rpx; font-weight: 700; color: #4F7EFF; }
+.q-sep, .q-total { font-size: 24rpx; color: #999; }
 .mode-tag { font-size: 22rpx; }
-.star-btn { margin-left: auto; font-size: 52rpx; color: #FAAD14; padding: 0 10rpx; }
+.star-btn { margin-left: auto; font-size: 48rpx; color: #FAAD14; padding: 0 8rpx; line-height: 1; }
 
 /* 整体进度条 */
-.q-progress-bar { height: 6rpx; background: #EEE; }
-.q-progress-fill { height: 100%; background: var(--color-primary); transition: width 0.3s; }
+.q-progress-bar { height: 8rpx; background: #EFEFEF; }
+.q-progress-fill { height: 100%; background: var(--color-primary); transition: width 0.3s ease; }
 
-/* 题目卡片 */
-.question-card { flex: 1; margin: 24rpx 24rpx 180rpx; background: #fff; border-radius: 24rpx; padding: 36rpx; box-shadow: var(--shadow); }
+/* 题目卡片 - 底部留出底栏高度 */
+.question-card {
+  margin: 20rpx 20rpx 200rpx;
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 32rpx;
+  box-shadow: var(--shadow);
+}
 
-.q-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 12rpx; margin-bottom: 24rpx; }
-.q-type-tag { padding: 6rpx 18rpx; border-radius: 20rpx; font-size: 22rpx; font-weight: 600; }
+.q-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10rpx; margin-bottom: 20rpx; }
+.q-type-tag { padding: 6rpx 16rpx; border-radius: 20rpx; font-size: 22rpx; font-weight: 600; }
 .q-type-tag.single { background: #E8F0FF; color: #4F7EFF; }
 .q-type-tag.multi  { background: #FFF3E0; color: #F57C00; }
 .q-type-tag.judge  { background: #E8F8EF; color: #18C971; }
@@ -31,18 +37,17 @@
 .q-tags { display: flex; flex-wrap: wrap; gap: 8rpx; }
 .q-tag { background: #F5F6FA; color: #888; font-size: 20rpx; padding: 4rpx 12rpx; border-radius: 12rpx; }
 
-.q-content { font-size: 32rpx; line-height: 1.7; color: #222; margin-bottom: 36rpx; font-weight: 500; }
+.q-content { font-size: 32rpx; line-height: 1.8; color: #1a1a1a; margin-bottom: 32rpx; font-weight: 500; }
 
 /* 选项 */
 .options { display: flex; flex-direction: column; gap: 16rpx; }
 .option {
   display: flex;
-  align-items: flex-start;
-  padding: 24rpx;
+  align-items: center;
+  padding: 22rpx 24rpx;
   border-radius: 16rpx;
   border: 2rpx solid #EEEEEE;
   background: #FAFAFA;
-  transition: all 0.2s;
 }
 .option.selected { border-color: #4F7EFF; background: #EEF2FF; }
 .option.correct  { border-color: #18C971; background: #E8F8EF; }
@@ -55,22 +60,24 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 26rpx;
+  font-size: 24rpx;
   font-weight: 700;
   flex-shrink: 0;
-  margin-right: 18rpx;
+  margin-right: 20rpx;
+  line-height: 52rpx;
+  text-align: center;
 }
 .option.selected .option-key { background: #4F7EFF; color: #fff; }
 .option.correct .option-key  { background: #18C971; color: #fff; }
 .option.wrong .option-key    { background: #FF4D4F; color: #fff; }
-.option-text { flex: 1; font-size: 28rpx; line-height: 1.6; color: #333; padding-top: 6rpx; }
-.option-icon { font-size: 32rpx; margin-left: 12rpx; }
+.option-text { flex: 1; font-size: 28rpx; line-height: 1.6; color: #333; }
+.option-icon { font-size: 34rpx; margin-left: 16rpx; flex-shrink: 0; }
 .option.correct .option-icon { color: #18C971; }
 .option.wrong .option-icon   { color: #FF4D4F; }
 
 /* 解析 */
-.explanation { margin-top: 32rpx; padding: 24rpx; background: #FFFDF0; border-radius: 16rpx; border-left: 6rpx solid #FAAD14; }
-.exp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16rpx; }
+.explanation { margin-top: 28rpx; padding: 24rpx; background: #FFFDF0; border-radius: 16rpx; border-left: 6rpx solid #FAAD14; }
+.exp-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14rpx; }
 .exp-result { font-size: 28rpx; font-weight: 700; }
 .exp-result.correct { color: var(--color-success); }
 .exp-result.wrong   { color: var(--color-danger); }
@@ -78,23 +85,62 @@
 .exp-content { font-size: 26rpx; color: #555; line-height: 1.8; }
 .exp-label { font-weight: 600; color: #F57C00; }
 
-/* 底部按钮 */
+/* ── 底部导航栏 ── */
 .bottom-bar {
-  position: fixed; bottom: 0; left: 0; right: 0;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
   background: #fff;
-  padding: 20rpx 30rpx;
+  padding: 20rpx 24rpx;
+  padding-bottom: calc(20rpx + env(safe-area-inset-bottom));
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 16rpx;
-  box-shadow: 0 -4rpx 20rpx rgba(0,0,0,0.08);
+  box-shadow: 0 -4rpx 24rpx rgba(0,0,0,0.08);
+  box-sizing: border-box;
 }
-.btn-prev {
-  width: 88rpx; height: 88rpx; border-radius: 50%; background: #F0F4FF; color: #4F7EFF;
-  font-size: 44rpx; display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0; border: none;
+
+/* 圆形前/后翻页按钮 */
+.nav-btn {
+  width: 88rpx;
+  height: 88rpx;
+  min-width: 88rpx;
+  border-radius: 50%;
+  background: #F0F4FF;
+  color: #4F7EFF;
+  font-size: 40rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  padding: 0;
+  line-height: 88rpx;
+  text-align: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
 }
-.btn-prev::after { border: none; }
-.confirm-btn, .next-btn { flex: 1; }
+.nav-btn.nav-disabled { opacity: 0.3; }
+
+/* 占位，保证对称 */
+.nav-placeholder {
+  width: 88rpx;
+  min-width: 88rpx;
+  flex-shrink: 0;
+}
+
+/* 中间主按钮占满剩余空间 */
+.confirm-btn,
+.next-btn {
+  flex: 1;
+  min-width: 0;
+  height: 88rpx;
+  line-height: 88rpx;
+  padding: 0;
+  box-sizing: border-box;
+}
 
 /* 加载 */
 .loading-page {

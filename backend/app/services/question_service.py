@@ -155,9 +155,10 @@ def submit_answer(db: Session, data: AnswerSubmit) -> AnswerResult:
     db.add(record)
 
     # 更新题目正确率（滑动平均）
-    total = question.answer_count + 1
-    old_rate = question.correct_rate
-    question.correct_rate = (old_rate * question.answer_count + (1 if is_correct else 0)) / total
+    old_count = question.answer_count or 0
+    old_rate = question.correct_rate or 0.0
+    total = old_count + 1
+    question.correct_rate = (old_rate * old_count + (1 if is_correct else 0)) / total
     question.answer_count = total
 
     # 更新用户进度
@@ -172,16 +173,16 @@ def submit_answer(db: Session, data: AnswerSubmit) -> AnswerResult:
             starred_ids=[],
         )
         db.add(progress)
-    progress.total_answered += 1
+    progress.total_answered = (progress.total_answered or 0) + 1
     if is_correct:
-        progress.correct_count += 1
+        progress.correct_count = (progress.correct_count or 0) + 1
 
     db.commit()
 
     return AnswerResult(
         is_correct=is_correct,
-        correct_answer=question.answer,
-        explanation=question.explanation,
+        correct_answer=question.answer or "",
+        explanation=question.explanation or "",
         correct_rate=round(question.correct_rate, 3),
     )
 

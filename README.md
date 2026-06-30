@@ -49,6 +49,11 @@ cp .env.example .env
 # 2. 安装依赖
 pip install -r requirements.txt
 
+# 也可以构建虚拟环境进行安装
+# conda create -n quizapp python=3.11
+# conda activate quizapp
+# pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+
 # 3. 启动（默认 SQLite，无需额外配置）
 python run.py
 # → http://127.0.0.1:8000

@@ -1,3 +1,4 @@
+<wxs src="../../utils/format.wxs" module="fmt" />
 <view class="container">
   <!-- 用户信息 -->
   <view class="user-card">
@@ -16,7 +17,7 @@
     </view>
     <view class="stat-divider"></view>
     <view class="stat-item">
-      <text class="stat-num green">{{stats.accuracy ? (stats.accuracy * 100).toFixed(1) + '%' : '--'}}</text>
+      <text class="stat-num green">{{fmt.accuracyStr1(stats.accuracy)}}</text>
       <text class="stat-label">总正确率</text>
     </view>
     <view class="stat-divider"></view>
@@ -85,8 +86,8 @@
     <view class="as-title">答题分布</view>
     <view class="as-bar-wrap">
       <view class="as-bar">
-        <view class="as-correct" style="width:{{(stats.accuracy * 100).toFixed(0)}}%"></view>
-        <view class="as-wrong" style="width:{{((1 - stats.accuracy) * 100).toFixed(0)}}%"></view>
+        <view class="as-correct" style="width:{{fmt.toFixed0(stats.accuracy * 100)}}%"></view>
+        <view class="as-wrong" style="width:{{fmt.toFixed0((1 - stats.accuracy) * 100)}}%"></view>
       </view>
     </view>
     <view class="as-legend">

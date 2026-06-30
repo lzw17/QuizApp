@@ -1,3 +1,4 @@
+<wxs src="../../utils/format.wxs" module="fmt" />
 <view class="container" wx:if="{{bank}}">
   <!-- 头部 -->
   <view class="header">
@@ -26,15 +27,15 @@
         <text class="pstat-label">答对</text>
       </view>
       <view class="pstat">
-        <text class="pstat-num blue">{{(progress.accuracy * 100).toFixed(0)}}%</text>
+        <text class="pstat-num blue">{{fmt.toFixed0(progress.accuracy * 100)}}%</text>
         <text class="pstat-label">正确率</text>
       </view>
     </view>
     <view class="pbar-wrap">
       <view class="pbar">
-        <view class="pbar-fill" style="width:{{(progress.total_answered / bank.total_count * 100).toFixed(0)}}%"></view>
+        <view class="pbar-fill" style="width:{{fmt.progressPct(progress.total_answered, bank.total_count)}}%"></view>
       </view>
-      <text class="pbar-label">已完成 {{(progress.total_answered / bank.total_count * 100).toFixed(0)}}%</text>
+      <text class="pbar-label">已完成 {{fmt.progressPct(progress.total_answered, bank.total_count)}}%</text>
     </view>
   </view>
 

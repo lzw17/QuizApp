@@ -62,15 +62,15 @@ class QuestionOut(BaseModel):
 
 
 class GenerateTaskOut(BaseModel):
-    task_id: str
-    bank_id: Optional[int]
-    status: str
-    progress: int
-    total_chunks: int
-    processed_chunks: int
-    generated_count: int
-    message: str
-    error: str
+    id: str
+    bank_id: Optional[int] = None
+    status: str = "pending"
+    progress: int = 0
+    total_chunks: int = 0
+    processed_chunks: int = 0
+    generated_count: int = 0
+    message: str = ""
+    error: str = ""
 
     class Config:
         from_attributes = True

@@ -1,0 +1,64 @@
+/**
+ * WXS 格式化工具
+ * WXML 不支持在模板表达式中直接调用 .toFixed() 等方法，
+ * 必须通过 WXS 模块来实现。
+ */
+
+/** 四舍五入到整数，返回字符串 */
+function toFixed0(val) {
+  if (val === null || val === undefined || isNaN(val)) return '0';
+  return '' + Math.round(val);
+}
+
+/** part/total 百分比，整数字符串 */
+function progressPct(part, total) {
+  if (!total || total === 0) return '0';
+  return '' + Math.round(part / total * 100);
+}
+
+/** accuracy(0~1) → "85%" 或 "--" */
+function accuracyStr(accuracy) {
+  if (!accuracy) return '--';
+  return '' + Math.round(accuracy * 100) + '%';
+}
+
+/** accuracy(0~1) → "85.3%" 或 "--"，保留1位小数 */
+function accuracyStr1(accuracy) {
+  if (!accuracy) return '--';
+  return '' + (Math.round(accuracy * 1000) / 10) + '%';
+}
+
+/** 秒数 → "MM:SS" */
+function formatTime(secs) {
+  secs = secs || 0;
+  var m = Math.floor(secs / 60);
+  var s = secs % 60;
+  return (m < 10 ? '0' + m : '' + m) + ':' + (s < 10 ? '0' + s : '' + s);
+}
+
+/** 练习页选项样式 */
+function getOptionClass(key, answered, selectedAnswer, answer) {
+  if (!answered) return (selectedAnswer && selectedAnswer.indexOf(key) >= 0) ? 'selected' : '';
+  var correct = (answer || '').toUpperCase();
+  var isCorrectKey = correct.indexOf(key) >= 0;
+  var isSelected = (selectedAnswer || '').toUpperCase().indexOf(key) >= 0;
+  if (isCorrectKey) return 'correct';
+  if (isSelected) return 'wrong';
+  return '';
+}
+
+/** 判断该选项是否是正确答案 */
+function isCorrectOption(key, answer) {
+  if (!answer) return false;
+  return answer.toUpperCase().indexOf(key) >= 0;
+}
+
+module.exports = {
+  toFixed0: toFixed0,
+  progressPct: progressPct,
+  accuracyStr: accuracyStr,
+  accuracyStr1: accuracyStr1,
+  formatTime: formatTime,
+  getOptionClass: getOptionClass,
+  isCorrectOption: isCorrectOption,
+};

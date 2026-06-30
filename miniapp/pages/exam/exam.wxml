@@ -1,3 +1,4 @@
+<wxs src="../../utils/format.wxs" module="fmt" />
 <!-- 考前准备页 -->
 <view class="prepare-page" wx:if="{{phase === 'prepare'}}">
   <view class="prepare-icon">📝</view>
@@ -33,7 +34,7 @@
   <!-- 顶部计时器 + 进度 -->
   <view class="exam-header">
     <view class="timer {{timeLeft <= 60 ? 'urgent' : ''}}">
-      ⏱ {{formatTime(timeLeft)}}
+      ⏱ {{fmt.formatTime(timeLeft)}}
     </view>
     <view class="exam-progress">{{answeredCount}}/{{questions.length}} 已答</view>
     <view class="sheet-btn" bindtap="showSheet">答题卡</view>

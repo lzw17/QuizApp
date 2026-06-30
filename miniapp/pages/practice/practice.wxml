@@ -1,3 +1,4 @@
+<wxs src="../../utils/format.wxs" module="fmt" />
 <view class="container" wx:if="{{question}}">
   <!-- 顶栏 -->
   <view class="top-bar">
@@ -14,7 +15,7 @@
 
   <!-- 进度条 -->
   <view class="q-progress-bar">
-    <view class="q-progress-fill" style="width:{{total ? ((currentIndex+1)/total*100).toFixed(0) : 0}}%"></view>
+    <view class="q-progress-fill" style="width:{{fmt.progressPct(currentIndex+1, total)}}%"></view>
   </view>
 
   <!-- 题目卡片 -->
@@ -39,14 +40,14 @@
     <view class="options">
       <view
         wx:for="{{question.options}}" wx:key="key"
-        class="option {{getOptionClass(item.key)}}"
+        class="option {{fmt.getOptionClass(item.key, answered, selectedAnswer, question.answer)}}"
         bindtap="selectOption"
         data-key="{{item.key}}"
       >
         <view class="option-key">{{item.key}}</view>
         <view class="option-text">{{item.text}}</view>
         <view class="option-icon" wx:if="{{answered}}">
-          <text wx:if="{{isCorrectOption(item.key)}}">✓</text>
+          <text wx:if="{{fmt.isCorrectOption(item.key, question.answer)}}">✓</text>
           <text wx:elif="{{item.key === selectedAnswer}}">✗</text>
         </view>
       </view>
@@ -58,7 +59,7 @@
         <view class="exp-result {{isCorrect ? 'correct' : 'wrong'}}">
           {{isCorrect ? '✓ 回答正确' : '✗ 回答错误'}}
         </view>
-        <text class="exp-rate">正确率 {{(correctRate * 100).toFixed(0)}}%</text>
+        <text class="exp-rate">正确率 {{fmt.toFixed0(correctRate * 100)}}%</text>
       </view>
       <view class="exp-content">
         <text class="exp-label">【解析】</text>{{question.explanation || '暂无解析'}}
@@ -67,8 +68,8 @@
   </view>
 
   <!-- 底部按钮 -->
-  <view class="bottom-bar safe-bottom">
-    <button class="btn-prev" bindtap="prevQuestion" disabled="{{currentIndex === 0}}">‹</button>
+  <view class="bottom-bar">
+    <view class="nav-btn {{currentIndex === 0 ? 'nav-disabled' : ''}}" bindtap="prevQuestion">‹</view>
     <button
       wx:if="{{!answered}}"
       class="btn-primary confirm-btn"
@@ -79,8 +80,9 @@
       wx:else
       class="btn-primary next-btn"
       bindtap="nextQuestion"
-    >{{isLast ? '完成' : '下一题 ›'}}</button>
-    <button class="btn-prev" bindtap="nextQuestion" wx:if="{{!answered}}">›</button>
+    >{{isLast ? '完成' : '下一题'}}</button>
+    <view class="nav-btn" bindtap="nextQuestion" wx:if="{{!answered}}">›</view>
+    <view class="nav-placeholder" wx:else></view>
   </view>
 </view>
 
@@ -104,7 +106,7 @@
       <text class="dstat-label">正确</text>
     </view>
     <view class="dstat">
-      <text class="dstat-num">{{sessionTotal ? (sessionCorrect/sessionTotal*100).toFixed(0) : 0}}%</text>
+      <text class="dstat-num">{{sessionTotal ? fmt.progressPct(sessionCorrect, sessionTotal) : '0'}}%</text>
       <text class="dstat-label">正确率</text>
     </view>
   </view>
