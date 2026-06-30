@@ -9,6 +9,12 @@
   gap: 30rpx;
 }
 .avatar { width: 120rpx; height: 120rpx; border-radius: 50%; border: 4rpx solid rgba(255,255,255,0.6); }
+.avatar-placeholder {
+  background: rgba(255,255,255,0.25);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.avatar-initial { font-size: 52rpx; font-weight: 700; color: #fff; line-height: 1; }
 .user-info { flex: 1; }
 .username { font-size: 40rpx; font-weight: 700; color: #fff; margin-bottom: 12rpx; }
 .user-level { background: rgba(255,255,255,0.25); color: #fff; border: none; font-size: 24rpx; }

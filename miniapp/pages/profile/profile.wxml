@@ -2,7 +2,10 @@
 <view class="container">
   <!-- 用户信息 -->
   <view class="user-card">
-    <image class="avatar" src="{{userInfo.avatar || '/images/default-avatar.png'}}" mode="aspectFill" />
+    <image wx:if="{{userInfo.avatar}}" class="avatar" src="{{userInfo.avatar}}" mode="aspectFill" />
+    <view wx:else class="avatar avatar-placeholder">
+      <text class="avatar-initial">{{userInfo.nickname ? userInfo.nickname[0] : '?'}}</text>
+    </view>
     <view class="user-info">
       <view class="username">{{userInfo.nickname || '未登录'}}</view>
       <view class="user-level tag">{{levelLabel}}</view>
