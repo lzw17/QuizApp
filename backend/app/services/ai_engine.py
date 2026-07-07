@@ -19,11 +19,16 @@ logger = logging.getLogger(__name__)
 #  DeepSeek 客户端（兼容 OpenAI 格式）
 # ──────────────────────────────────────────
 
-def get_llm(temperature: float = 0.7) -> ChatOpenAI:
+def get_llm(
+    temperature: float = 0.7,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    model: Optional[str] = None,
+) -> ChatOpenAI:
     return ChatOpenAI(
-        model=settings.DEEPSEEK_MODEL,
-        openai_api_key=settings.DEEPSEEK_API_KEY,
-        openai_api_base=settings.DEEPSEEK_BASE_URL,
+        model=model or settings.DEEPSEEK_MODEL,
+        openai_api_key=api_key or settings.DEEPSEEK_API_KEY,
+        openai_api_base=base_url or settings.DEEPSEEK_BASE_URL,
         temperature=temperature,
         max_tokens=4096,
     )
@@ -155,12 +160,15 @@ async def generate_from_chunk(
     start_index: int,
     num_direct: int = 3,
     num_logic: int = 2,
+    llm_api_key: Optional[str] = None,
+    llm_base_url: Optional[str] = None,
+    llm_model: Optional[str] = None,
 ) -> List[dict]:
     """
     对单个文本块调用双 Agent 并行出题
     返回标准化后的题目列表
     """
-    llm = get_llm(temperature=0.8)
+    llm = get_llm(temperature=0.8, api_key=llm_api_key, base_url=llm_base_url, model=llm_model)
     parser = StrOutputParser()
 
     direct_chain = DIRECT_PROMPT | llm | parser
@@ -199,6 +207,9 @@ async def generate_questions_from_chunks(
     progress_callback: Optional[Callable[[int, int, int, str], Awaitable[None]]] = None,
     num_direct: int = 3,
     num_logic: int = 2,
+    llm_api_key: Optional[str] = None,
+    llm_base_url: Optional[str] = None,
+    llm_model: Optional[str] = None,
 ) -> List[dict]:
     """
     对所有分块逐一出题，带进度回调
@@ -215,6 +226,9 @@ async def generate_questions_from_chunks(
                 start_index=len(all_questions),
                 num_direct=num_direct,
                 num_logic=num_logic,
+                llm_api_key=llm_api_key,
+                llm_base_url=llm_base_url,
+                llm_model=llm_model,
             )
             all_questions.extend(questions)
         except Exception as e:
@@ -240,7 +254,12 @@ async def generate_questions_from_chunks(
 #  知识点分类（可选的后处理步骤）
 # ──────────────────────────────────────────
 
-async def classify_questions_tags(questions: List[dict]) -> List[dict]:
+async def classify_questions_tags(
+    questions: List[dict],
+    llm_api_key: Optional[str] = None,
+    llm_base_url: Optional[str] = None,
+    llm_model: Optional[str] = None,
+) -> List[dict]:
     """
     批量补全/规范化知识点标签
     对已有 tags 的题目不做处理
@@ -249,7 +268,7 @@ async def classify_questions_tags(questions: List[dict]) -> List[dict]:
     if not needs_tag:
         return questions
 
-    llm = get_llm(temperature=0.3)
+    llm = get_llm(temperature=0.3, api_key=llm_api_key, base_url=llm_base_url, model=llm_model)
     batch_content = "\n".join(
         f"{i+1}. {q['content']}" for i, q in enumerate(needs_tag)
     )

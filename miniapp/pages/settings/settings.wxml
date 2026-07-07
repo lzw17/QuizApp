@@ -1,0 +1,65 @@
+<view class="container">
+  <!-- 预设模型 -->
+  <view class="section">
+    <view class="section-title">选择大模型</view>
+    <view class="preset-list">
+      <view
+        wx:for="{{presets}}"
+        wx:key="name"
+        class="preset-item {{index === selectedIdx ? 'active' : ''}}"
+        bindtap="selectPreset"
+        data-idx="{{index}}"
+      >
+        <view class="preset-name">{{item.name}}</view>
+        <view class="preset-desc">{{item.model || '自定义模型'}}</view>
+        <view class="preset-check" wx:if="{{index === selectedIdx}}">✓</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 配置详情 -->
+  <view class="section">
+    <view class="section-title">API 配置</view>
+    <view class="form-item">
+      <text class="form-label">API Key</text>
+      <input
+        class="form-input"
+        type="text"
+        password
+        placeholder="sk-..."
+        value="{{apiKey}}"
+        bindinput="onApiKeyInput"
+      />
+    </view>
+    <view class="form-item">
+      <text class="form-label">Base URL</text>
+      <input
+        class="form-input"
+        type="text"
+        placeholder="https://api.example.com/v1"
+        value="{{baseUrl}}"
+        bindinput="onBaseUrlInput"
+      />
+    </view>
+    <view class="form-item">
+      <text class="form-label">模型名称</text>
+      <input
+        class="form-input"
+        type="text"
+        placeholder="model-name"
+        value="{{model}}"
+        bindinput="onModelInput"
+      />
+    </view>
+  </view>
+
+  <!-- 操作按钮 -->
+  <view class="btn-group">
+    <button class="btn-primary" bindtap="save">保存配置</button>
+    <button class="btn-text" bindtap="clear">清除配置</button>
+  </view>
+
+  <view class="tips">
+    <text>配置保存在本地，出题时将使用此模型。留空则使用服务器默认配置。</text>
+  </view>
+</view>

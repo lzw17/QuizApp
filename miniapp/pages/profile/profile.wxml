@@ -2,8 +2,8 @@
 <view class="container">
   <!-- 用户信息 -->
   <view class="user-card">
-    <image wx:if="{{userInfo.avatar}}" class="avatar" src="{{userInfo.avatar}}" mode="aspectFill" />
-    <view wx:else class="avatar avatar-placeholder">
+    <image wx:if="{{userInfo.avatar}}" class="avatar" src="{{userInfo.avatar}}" mode="aspectFill" bindtap="changeAvatar" />
+    <view wx:else class="avatar avatar-placeholder" bindtap="changeAvatar">
       <text class="avatar-initial">{{userInfo.nickname ? userInfo.nickname[0] : '?'}}</text>
     </view>
     <view class="user-info">
@@ -74,6 +74,12 @@
     <view class="shortcut-item" bindtap="goUpload">
       <view class="sc-icon">📤</view>
       <text class="sc-label">导入资料</text>
+      <text class="sc-arrow">›</text>
+    </view>
+    <view class="shortcut-divider"></view>
+    <view class="shortcut-item" bindtap="goSettings">
+      <view class="sc-icon">🤖</view>
+      <text class="sc-label">AI 模型设置</text>
       <text class="sc-arrow">›</text>
     </view>
     <view class="shortcut-divider"></view>

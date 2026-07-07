@@ -1,0 +1,37 @@
+.container { background: #F5F6FA; min-height: 100vh; padding: 24rpx 30rpx 120rpx; }
+
+.section { background: #fff; border-radius: 20rpx; padding: 30rpx; margin-bottom: 24rpx; }
+.section-title { font-size: 30rpx; font-weight: 700; color: #333; margin-bottom: 24rpx; }
+
+/* 预设列表 */
+.preset-list { display: flex; flex-direction: column; gap: 16rpx; }
+.preset-item {
+  display: flex; flex-direction: column;
+  padding: 24rpx; border-radius: 16rpx;
+  border: 2rpx solid #EEE; background: #FAFAFA;
+  position: relative;
+}
+.preset-item.active { border-color: #4F7EFF; background: #EEF2FF; }
+.preset-name { font-size: 30rpx; font-weight: 600; color: #333; }
+.preset-desc { font-size: 24rpx; color: #999; margin-top: 6rpx; }
+.preset-check { position: absolute; right: 24rpx; top: 50%; transform: translateY(-50%); color: #4F7EFF; font-size: 36rpx; font-weight: 700; }
+
+/* 表单 */
+.form-item { margin-bottom: 24rpx; }
+.form-item:last-child { margin-bottom: 0; }
+.form-label { display: block; font-size: 26rpx; color: #666; margin-bottom: 10rpx; }
+.form-input {
+  width: 100%; box-sizing: border-box;
+  padding: 20rpx 24rpx; border: 2rpx solid #E0E0E0; border-radius: 12rpx;
+  font-size: 28rpx; color: #333; background: #fff;
+}
+
+/* 按钮 */
+.btn-group { display: flex; flex-direction: column; gap: 16rpx; margin-top: 20rpx; }
+.btn-primary { height: 88rpx; line-height: 88rpx; border-radius: 16rpx; font-size: 32rpx; }
+.btn-text { background: none; color: #999; font-size: 28rpx; border: none; }
+.btn-text::after { border: none; }
+
+/* 提示 */
+.tips { margin-top: 30rpx; padding: 0 20rpx; }
+.tips text { font-size: 24rpx; color: #BBB; line-height: 1.6; }

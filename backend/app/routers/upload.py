@@ -33,6 +33,9 @@ class UrlUploadRequest(BaseModel):
     bank_category: str = ""
     num_direct: int = 3
     num_logic: int = 2
+    llm_api_key: str = ""
+    llm_base_url: str = ""
+    llm_model: str = ""
 
 
 def _get_source_type(filename: str) -> str:
@@ -53,6 +56,9 @@ async def upload_file(
     bank_category: str = Form(""),
     num_direct: int = Form(3),
     num_logic: int = Form(2),
+    llm_api_key: str = Form(""),
+    llm_base_url: str = Form(""),
+    llm_model: str = Form(""),
     db: Session = Depends(get_db),
 ):
     """上传 PDF/Word 文档，异步生成题库"""
@@ -98,6 +104,9 @@ async def upload_file(
         db_factory=SessionLocal,
         num_direct=num_direct,
         num_logic=num_logic,
+        llm_api_key=llm_api_key or None,
+        llm_base_url=llm_base_url or None,
+        llm_model=llm_model or None,
     )
 
     return UploadResponse(task_id=task_id, bank_id=bank.id, message="文件上传成功，正在生成题库...")
@@ -139,6 +148,9 @@ async def upload_url(
         db_factory=SessionLocal,
         num_direct=data.num_direct,
         num_logic=data.num_logic,
+        llm_api_key=data.llm_api_key or None,
+        llm_base_url=data.llm_base_url or None,
+        llm_model=data.llm_model or None,
     )
 
     return UploadResponse(task_id=task_id, bank_id=bank.id, message="URL 提交成功，正在生成题库...")

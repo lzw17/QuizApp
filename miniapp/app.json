@@ -9,6 +9,7 @@
     "pages/result/result",
     "pages/wrong-book/wrong-book",
     "pages/profile/profile",
+    "pages/settings/settings",
     "pages/manage/manage"
   ],
   "window": {

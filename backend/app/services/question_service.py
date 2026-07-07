@@ -280,6 +280,9 @@ async def run_generate_task(
     db_factory,
     num_direct: int = 3,
     num_logic: int = 2,
+    llm_api_key: Optional[str] = None,
+    llm_base_url: Optional[str] = None,
+    llm_model: Optional[str] = None,
 ):
     """
     后台异步出题任务主流程
@@ -323,12 +326,20 @@ async def run_generate_task(
             progress_callback=on_progress,
             num_direct=num_direct,
             num_logic=num_logic,
+            llm_api_key=llm_api_key,
+            llm_base_url=llm_base_url,
+            llm_model=llm_model,
         )
 
         # 5. 补全标签
         task.message = "正在整理知识点标签..."
         db.commit()
-        questions = await classify_questions_tags(questions)
+        questions = await classify_questions_tags(
+            questions,
+            llm_api_key=llm_api_key,
+            llm_base_url=llm_base_url,
+            llm_model=llm_model,
+        )
 
         # 6. 批量写入数据库
         for i, q in enumerate(questions):

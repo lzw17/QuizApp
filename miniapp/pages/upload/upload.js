@@ -62,6 +62,8 @@ Page({
 
     this.setData({ submitting: true });
 
+    const llm = wx.getStorageSync('llmSettings') || {};
+
     try {
       let result;
       if (sourceType === 'file') {
@@ -71,6 +73,9 @@ Page({
           bank_category: bankCategory,
           num_direct: numDirect,
           num_logic: numLogic,
+          llm_api_key: llm.apiKey || '',
+          llm_base_url: llm.baseUrl || '',
+          llm_model: llm.model || '',
         });
       } else {
         result = await request({
@@ -83,6 +88,9 @@ Page({
             bank_category: bankCategory,
             num_direct: numDirect,
             num_logic: numLogic,
+            llm_api_key: llm.apiKey || '',
+            llm_base_url: llm.baseUrl || '',
+            llm_model: llm.model || '',
           },
         });
       }
