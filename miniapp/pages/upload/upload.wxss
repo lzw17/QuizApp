@@ -10,12 +10,14 @@
   width: 100%;
   background: #F8F9FB;
   border-radius: 12rpx;
-  padding: 22rpx 24rpx;
+  padding: 0 24rpx;
+  height: 88rpx;
+  line-height: 88rpx;
   font-size: 28rpx;
   box-sizing: border-box;
   border: 2rpx solid transparent;
+  outline: none;
 }
-.form-input:focus { border-color: var(--color-primary); }
 .form-textarea {
   width: 100%;
   background: #F8F9FB;
@@ -24,6 +26,8 @@
   font-size: 28rpx;
   min-height: 120rpx;
   box-sizing: border-box;
+  border: 2rpx solid transparent;
+  outline: none;
 }
 
 /* 出题数量控制 */
@@ -40,7 +44,7 @@
   font-size: 36rpx;
   font-weight: 700;
 }
-.num-val { font-size: 36rpx; font-weight: 700; color: #333; min-width: 40rpx; text-align: center; }
+.num-val {  color: #333; min-width: 40rpx; text-align: center; }
 
 /* 来源选择 */
 .source-tabs { display: flex; gap: 16rpx; margin-bottom: 28rpx; }
@@ -53,7 +57,12 @@
   font-size: 28rpx;
   color: #666;
   border: 2rpx solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
 }
+.source-tab-icon { width: 36rpx; height: 36rpx; }
 .source-tab.active { background: var(--color-primary-light); color: var(--color-primary); border-color: var(--color-primary); }
 
 /* 上传区域 */
@@ -67,6 +76,7 @@
   gap: 12rpx;
 }
 .upload-icon { font-size: 80rpx; }
+.upload-icon-img { width: 80rpx; height: 80rpx; }
 .upload-tip { font-size: 30rpx; color: #555; font-weight: 600; }
 .upload-sub { font-size: 24rpx; color: #999; }
 

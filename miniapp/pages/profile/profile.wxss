@@ -2,11 +2,22 @@
 
 /* 用户卡片 */
 .user-card {
-  background: linear-gradient(135deg, #4F7EFF, #7B6FF0);
   padding: 60rpx 40rpx 80rpx;
   display: flex;
   align-items: center;
   gap: 30rpx;
+  position: relative;
+  overflow: hidden;
+}
+.user-card-bg {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 0;
+}
+.user-card > view, .user-card > image:not(.user-card-bg) {
+  position: relative;
+  z-index: 1;
 }
 .avatar { width: 120rpx; height: 120rpx; border-radius: 50%; border: 4rpx solid rgba(255,255,255,0.6); }
 .avatar-placeholder {
@@ -21,7 +32,7 @@
 
 /* 数据格子 */
 .stats-grid {
-  margin: -40rpx 30rpx 20rpx;
+  margin: -40rpx 22rpx 20rpx;
   border-radius: 20rpx;
   display: flex;
   align-items: center;
@@ -41,6 +52,7 @@
 .detail-cards { display: flex; flex-wrap: wrap; padding: 0 22rpx; gap: 16rpx; margin-bottom: 20rpx; }
 .detail-card { flex: 1; min-width: 40%; border-radius: 16rpx; padding: 24rpx; display: flex; align-items: center; gap: 16rpx; }
 .dc-icon { font-size: 52rpx; }
+.dc-icon-img { width: 60rpx; height: 60rpx; flex-shrink: 0; }
 .dc-num { font-size: 44rpx; font-weight: 700; color: #333; }
 .dc-num.red    { color: var(--color-danger); }
 .dc-num.yellow { color: #FAAD14; }
@@ -48,7 +60,7 @@
 .dc-label { font-size: 22rpx; color: #999; }
 
 /* 快捷入口 */
-.shortcuts { margin: 0 30rpx 20rpx; border-radius: 20rpx; padding: 0 30rpx; }
+.shortcuts { margin: 0 22rpx 20rpx; border-radius: 20rpx; padding: 0 30rpx; }
 .shortcut-item { display: flex; align-items: center; padding: 32rpx 0; gap: 20rpx; }
 .shortcut-divider { height: 2rpx; background: #F0F0F0; }
 .sc-icon { font-size: 44rpx; }

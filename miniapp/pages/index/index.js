@@ -11,15 +11,21 @@ Page({
     userId: null,
     page: 0,
     hasMore: true,
+    statusBarHeight: 0,
   },
 
   onLoad() {
-    this.setData({ userId: app.globalData.userId });
+    const { statusBarHeight } = wx.getWindowInfo();
+    this.setData({ statusBarHeight, userId: app.globalData.userId });
     this._loadBanks(true);
     this._loadStats();
   },
 
   onShow() {
+    // 更新自定义 tabBar 选中状态
+    if (typeof this.getTabBar === 'function' && this.getTabBar()) {
+      this.getTabBar().setData({ selected: 0 });
+    }
     // 每次显示刷新（上传完成后返回）
     this._loadBanks(true);
     this._loadStats();

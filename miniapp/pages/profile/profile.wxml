@@ -1,7 +1,8 @@
 <wxs src="../../utils/format.wxs" module="fmt" />
 <view class="container">
   <!-- 用户信息 -->
-  <view class="user-card">
+  <view class="user-card" style="padding-top: {{statusBarHeight + 10}}px;">
+    <image class="user-card-bg" src="/images/page/bg.jpg" mode="aspectFill" />
     <image wx:if="{{userInfo.avatar}}" class="avatar" src="{{userInfo.avatar}}" mode="aspectFill" />
     <view wx:else class="avatar avatar-placeholder">
       <text class="avatar-initial">{{userInfo.nickname ? userInfo.nickname[0] : '?'}}</text>
@@ -33,30 +34,30 @@
   <!-- 详细统计卡片 -->
   <view class="detail-cards">
     <view class="detail-card card">
-      <view class="dc-icon">📚</view>
+      <image class="dc-icon-img" src="/images/page/book.png" />
       <view class="dc-content">
         <view class="dc-num">{{stats.banks_studied || 0}}</view>
         <view class="dc-label">学习过的题库</view>
       </view>
     </view>
     <view class="detail-card card">
-      <view class="dc-icon">❌</view>
+      <image class="dc-icon-img" src="/images/page/wrong.png" />
       <view class="dc-content">
-        <view class="dc-num red">{{stats.wrong_count || 0}}</view>
+        <view class="dc-num">{{stats.wrong_count || 0}}</view>
         <view class="dc-label">错题数量</view>
       </view>
     </view>
     <view class="detail-card card">
-      <view class="dc-icon">⭐</view>
+      <image class="dc-icon-img" src="/images/page/favorite.png" />
       <view class="dc-content">
-        <view class="dc-num yellow">{{stats.starred_count || 0}}</view>
+        <view class="dc-num">{{stats.starred_count || 0}}</view>
         <view class="dc-label">收藏题目</view>
       </view>
     </view>
     <view class="detail-card card">
-      <view class="dc-icon">🔥</view>
+      <image class="dc-icon-img" src="/images/page/date.png" />
       <view class="dc-content">
-        <view class="dc-num orange">{{stats.streak_days || 0}}</view>
+        <view class="dc-num">{{stats.streak_days || 0}}</view>
         <view class="dc-label">连续天数</view>
       </view>
     </view>
@@ -65,20 +66,17 @@
   <!-- 快捷入口 -->
   <view class="shortcuts card">
     <view class="shortcut-item" bindtap="goWrongBook">
-      <view class="sc-icon">📖</view>
       <text class="sc-label">错题本</text>
       <text class="sc-badge" wx:if="{{stats.wrong_count > 0}}">{{stats.wrong_count}}</text>
       <text class="sc-arrow">›</text>
     </view>
     <view class="shortcut-divider"></view>
     <view class="shortcut-item" bindtap="goUpload">
-      <view class="sc-icon">📤</view>
       <text class="sc-label">导入资料</text>
       <text class="sc-arrow">›</text>
     </view>
     <view class="shortcut-divider"></view>
     <view class="shortcut-item" bindtap="goManage" wx:if="{{userInfo.is_admin}}">
-      <view class="sc-icon">⚙️</view>
       <text class="sc-label">题库管理</text>
       <text class="sc-arrow">›</text>
     </view>

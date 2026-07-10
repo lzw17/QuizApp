@@ -94,7 +94,7 @@
 
 <!-- 完成页 -->
 <view class="done-page" wx:if="{{done}}">
-  <view class="done-emoji">🎊</view>
+  <image class="done-img" src="/images/page/done.png" />
   <view class="done-title">练习完成！</view>
   <view class="done-stats">
     <view class="dstat">

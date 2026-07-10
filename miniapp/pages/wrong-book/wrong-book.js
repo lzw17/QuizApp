@@ -17,7 +17,13 @@ Page({
     this._loadAll();
   },
 
-  onShow()          { this._loadAll(); },
+  onShow() {
+    // 更新自定义 tabBar 选中状态
+    if (typeof this.getTabBar === 'function' && this.getTabBar()) {
+      this.getTabBar().setData({ selected: 1 });
+    }
+    this._loadAll();
+  },
   onPullDownRefresh() { this._loadAll(); wx.stopPullDownRefresh(); },
 
   switchTab(e) {

@@ -1,1 +1,4 @@
-{"navigationBarTitleText": "题库详情"}
+{
+  "navigationBarTitleText": "题库详情",
+  "navigationStyle": "custom"
+}

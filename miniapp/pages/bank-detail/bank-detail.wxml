@@ -1,15 +1,21 @@
 <wxs src="../../utils/format.wxs" module="fmt" />
 <view class="container" wx:if="{{bank}}">
   <!-- 头部 -->
-  <view class="header">
-    <view class="bank-icon">📚</view>
-    <view class="header-info">
+  <view class="header" style="padding-top: {{statusBarHeight + 10}}px;">
+    <image class="header-bg" src="/images/page/bankBg.jpg" mode="aspectFill" />
+    <view class="nav-bar">
+      <view class="back-btn" bindtap="goBack">‹</view>
+    </view>
+    <view class="header-main">
+      <image class="bank-icon-img" src="/images/page/bank.png" />
+      <view class="header-info">
       <view class="bank-name">{{bank.name}}</view>
       <view class="bank-desc">{{bank.description || '暂无描述'}}</view>
       <view class="bank-meta">
         <text class="meta-item">{{bank.total_count}} 道题</text>
         <text class="meta-sep">·</text>
         <text class="meta-item tag" wx:if="{{bank.category}}">{{bank.category}}</text>
+      </view>
       </view>
     </view>
   </view>
@@ -43,22 +49,19 @@
   <view class="section-title">选择练习模式</view>
   <view class="modes">
     <view class="mode-card" bindtap="startPractice" data-mode="sequential">
-      <view class="mode-icon">📋</view>
+      <image class="mode-icon-img" src="/images/icon/shunxu.svg" />
       <view class="mode-name">顺序练习</view>
       <view class="mode-desc">按题序逐题练，支持断点续做</view>
-      <view class="mode-arrow">›</view>
     </view>
     <view class="mode-card" bindtap="startPractice" data-mode="random">
-      <view class="mode-icon">🎲</view>
+      <image class="mode-icon-img" src="/images/icon/suiji.svg" />
       <view class="mode-name">随机练习</view>
       <view class="mode-desc">随机出题，碎片化学习</view>
-      <view class="mode-arrow">›</view>
     </view>
     <view class="mode-card" bindtap="startExam">
-      <view class="mode-icon">📝</view>
+      <image class="mode-icon-img" src="/images/icon/moni.svg" />
       <view class="mode-name">模拟考试</view>
       <view class="mode-desc">限时作答，交卷出分</view>
-      <view class="mode-arrow">›</view>
     </view>
   </view>
 

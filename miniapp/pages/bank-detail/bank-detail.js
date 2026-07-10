@@ -2,11 +2,12 @@ const { request, getUserId } = require('../../utils/request');
 const app = getApp();
 
 Page({
-  data: { bankId: null, bank: null, tags: [], progress: {} },
+  data: { bankId: null, bank: null, tags: [], progress: {}, statusBarHeight: 0 },
 
   onLoad(options) {
+    const { statusBarHeight } = wx.getWindowInfo();
     const id = parseInt(options.id);
-    this.setData({ bankId: id });
+    this.setData({ bankId: id, statusBarHeight });
     this._load(id);
   },
 
@@ -54,5 +55,9 @@ Page({
     wx.navigateTo({
       url: `/pages/exam/exam?bank_id=${this.data.bankId}`,
     });
+  },
+
+  goBack() {
+    wx.navigateBack();
   },
 });

@@ -42,7 +42,7 @@
       </view>
     </view>
     <view class="empty-state" wx:else>
-      <text>🎉 暂无错题，继续保持！</text>
+      <text> 暂无错题，继续保持！</text>
     </view>
   </view>
 

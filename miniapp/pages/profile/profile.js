@@ -6,10 +6,21 @@ Page({
     userInfo: {},
     stats: {},
     levelLabel: '初学者',
+    statusBarHeight: 0,
   },
 
-  onLoad()  { this._loadData(); },
-  onShow()  { this._loadData(); },
+  onLoad() {
+    const { statusBarHeight } = wx.getWindowInfo();
+    this.setData({ statusBarHeight });
+    this._loadData();
+  },
+  onShow() {
+    // 更新自定义 tabBar 选中状态
+    if (typeof this.getTabBar === 'function' && this.getTabBar()) {
+      this.getTabBar().setData({ selected: 2 });
+    }
+    this._loadData();
+  },
   onPullDownRefresh() { this._loadData(); wx.stopPullDownRefresh(); },
 
   async _loadData() {

@@ -23,11 +23,12 @@ page {
   --radius-sm: 8rpx;
   --radius-md: 16rpx;
   --radius-lg: 24rpx;
-  --shadow: 0 4rpx 20rpx rgba(0,0,0,0.08);
+  --shadow: 0 4rpx 8rpx rgba(0,0,0,0.04);
 }
 
 /* 通用卡片 */
 .card {
+  position: relative;
   background: #FFFFFF;
   border-radius: var(--radius-md);
   padding: 30rpx;

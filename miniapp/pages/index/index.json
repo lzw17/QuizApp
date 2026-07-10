@@ -1,4 +1,5 @@
 {
   "navigationBarTitleText": "智题宝",
+  "navigationStyle": "custom",
   "enablePullDownRefresh": true
 }

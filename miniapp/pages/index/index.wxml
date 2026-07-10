@@ -1,12 +1,15 @@
 <wxs src="../../utils/format.wxs" module="fmt" />
 <view class="container">
   <!-- 顶部 Banner -->
-  <view class="header">
-    <view class="header-title">智题宝</view>
-    <view class="header-sub">上传资料，AI 自动生成题库</view>
-    <button class="btn-upload" bindtap="goUpload">
-      <text class="icon">+</text> 导入新资料
-    </button>
+  <view class="header" style="padding-top: {{statusBarHeight + 10}}px;">
+    <image class="header-bg" src="/images/page/like.jpg" mode="aspectFill" />
+    <view class="header-content">
+      <view class="header-title">智题宝</view>
+      <view class="header-sub">上传资料，AI 自动生成题库</view>
+      <button class="btn-upload" bindtap="goUpload">
+        <text class="icon">+</text> 导入新资料
+      </button>
+    </view>
   </view>
 
   <!-- 学习打卡卡片 -->
@@ -53,7 +56,7 @@
       data-id="{{item.id}}"
     >
       <view class="bank-cover">
-        <text class="bank-icon">📚</text>
+        <image class="bank-icon-img" src="/images/page/bank.png" />
       </view>
       <view class="bank-info">
         <view class="bank-name">{{item.name}}</view>
