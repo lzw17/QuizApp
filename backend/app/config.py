@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     # WeChat Mini Program
     WX_APPID: str = ""
     WX_SECRET: str = ""
+    WX_MOCK_LOGIN: bool = False
+    WX_MOCK_OPENID: str = "local-dev-user"
+    AUTH_TOKEN_EXPIRE_DAYS: int = 30
 
     # MinerU 解析服务（可选）
     MINERU_API_KEY: Optional[str] = None
@@ -48,6 +51,20 @@ class Settings(BaseSettings):
     @property
     def max_file_size_bytes(self) -> int:
         return self.MAX_FILE_SIZE_MB * 1024 * 1024
+
+    def validate_runtime_security(self) -> None:
+        """Fail fast when production authentication is configured unsafely."""
+        if self.APP_ENV.lower() not in ("prod", "production"):
+            return
+        if self.WX_MOCK_LOGIN:
+            raise RuntimeError("WX_MOCK_LOGIN must be disabled in production")
+        if not self.WX_APPID or not self.WX_SECRET:
+            raise RuntimeError("WX_APPID and WX_SECRET are required in production")
+        if len(self.SECRET_KEY) < 32 or self.SECRET_KEY in (
+            "dev-secret-key",
+            "your-secret-key-change-in-production",
+        ):
+            raise RuntimeError("SECRET_KEY must be a random value of at least 32 characters")
 
 
 settings = Settings()

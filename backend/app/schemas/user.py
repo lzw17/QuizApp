@@ -5,7 +5,6 @@ from datetime import datetime
 
 class UserOut(BaseModel):
     id: int
-    openid: str
     nickname: Optional[str] = ""
     avatar: Optional[str] = ""
     is_admin: bool
@@ -15,7 +14,6 @@ class UserOut(BaseModel):
 
 
 class AnswerSubmit(BaseModel):
-    user_id: int
     question_id: int
     bank_id: int
     user_answer: str

@@ -30,7 +30,7 @@ Page({
     const uid = await getUserId();
     if (!uid) return;
     try {
-      const stats = await request({ url: `/api/stats?user_id=${uid}` });
+      const stats = await request({ url: '/api/stats' });
       this.setData({ stats, levelLabel: this._getLevel(stats.total_answered) });
     } catch {}
   },
@@ -46,4 +46,12 @@ Page({
   goWrongBook() { wx.switchTab({ url: '/pages/wrong-book/wrong-book' }); },
   goUpload()    { wx.navigateTo({ url: '/pages/upload/upload' }); },
   goManage()    { wx.navigateTo({ url: '/pages/manage/manage' }); },
+  logout() {
+    wx.showModal({
+      title: '退出登录',
+      content: '退出后，本机将清除登录状态，学习记录仍保留在账号中。',
+      confirmText: '退出',
+      success: res => { if (res.confirm) app.logout(); },
+    });
+  },
 });

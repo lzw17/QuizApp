@@ -13,9 +13,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func as sa_func
 
+from ..auth import get_current_user, require_admin
 from ..database import get_db
 from ..models.question import QuestionBank, Question, BankStatus
-from ..models.user import AnswerRecord, UserProgress
+from ..models.user import AnswerRecord, User, UserProgress
 from ..schemas.question import QuestionBankListItem, QuestionBankOut, QuestionOut, QuestionCreate
 
 router = APIRouter(prefix="/api", tags=["questions"])
@@ -38,6 +39,7 @@ def list_banks(
 def list_all_banks(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    _admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """管理员：获取所有状态的题库"""
@@ -83,11 +85,11 @@ def get_bank_tags(bank_id: int, db: Session = Depends(get_db)):
 def get_questions(
     bank_id: int = Query(...),
     mode: str = Query("sequential", description="sequential/random/wrong/starred"),
-    user_id: Optional[int] = None,
     tag: Optional[str] = None,
     difficulty: Optional[int] = Query(None, ge=1, le=5),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     query = db.query(Question).filter(
@@ -97,10 +99,8 @@ def get_questions(
 
     ordered_ids: Optional[List[int]] = None
     if mode == "wrong":
-        if not user_id:
-            raise HTTPException(400, "错题练习需要 user_id")
         records = db.query(AnswerRecord).filter(
-            AnswerRecord.user_id == user_id,
+            AnswerRecord.user_id == current_user.id,
             AnswerRecord.bank_id == bank_id,
             AnswerRecord.is_correct == False,
         ).order_by(AnswerRecord.answered_at.desc()).all()
@@ -114,10 +114,8 @@ def get_questions(
             return []
         query = query.filter(Question.id.in_(ordered_ids))
     elif mode == "starred":
-        if not user_id:
-            raise HTTPException(400, "收藏练习需要 user_id")
         progress = db.query(UserProgress).filter(
-            UserProgress.user_id == user_id,
+            UserProgress.user_id == current_user.id,
             UserProgress.bank_id == bank_id,
         ).first()
         ordered_ids = list(progress.starred_ids or []) if progress else []
@@ -144,7 +142,11 @@ def get_questions(
 
 
 @router.get("/questions/{question_id}", response_model=QuestionOut)
-def get_question(question_id: int, db: Session = Depends(get_db)):
+def get_question(
+    question_id: int,
+    _current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     q = db.query(Question).filter(Question.id == question_id).first()
     if not q:
         raise HTTPException(404, "题目不存在")
@@ -152,7 +154,11 @@ def get_question(question_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/questions", response_model=QuestionOut)
-def create_question(data: QuestionCreate, db: Session = Depends(get_db)):
+def create_question(
+    data: QuestionCreate,
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
     """手动添加题目"""
     bank = db.query(QuestionBank).filter(QuestionBank.id == data.bank_id).first()
     if not bank:
@@ -182,7 +188,12 @@ def create_question(data: QuestionCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/questions/{question_id}", response_model=QuestionOut)
-def update_question(question_id: int, data: QuestionCreate, db: Session = Depends(get_db)):
+def update_question(
+    question_id: int,
+    data: QuestionCreate,
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
     q = db.query(Question).filter(Question.id == question_id).first()
     if not q:
         raise HTTPException(404, "题目不存在")
@@ -199,7 +210,11 @@ def update_question(question_id: int, data: QuestionCreate, db: Session = Depend
 
 
 @router.delete("/questions/{question_id}")
-def delete_question(question_id: int, db: Session = Depends(get_db)):
+def delete_question(
+    question_id: int,
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
     q = db.query(Question).filter(Question.id == question_id).first()
     if not q:
         raise HTTPException(404, "题目不存在")

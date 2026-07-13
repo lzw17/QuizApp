@@ -45,6 +45,7 @@ cd backend
 # 1. 复制配置
 cp .env.example .env
 # 编辑 .env，填入 DEEPSEEK_API_KEY
+# 微信登录还需填入 WX_APPID、WX_SECRET，并生成随机 SECRET_KEY
 
 # 2. 安装依赖
 pip install -r requirements.txt
@@ -88,6 +89,22 @@ python run.py
 | `DATABASE_URL` | 数据库连接 | SQLite（开发） |
 | `MINERU_API_KEY` | MinerU PDF 解析（可选） | 无则用 PyPDF |
 | `DEEPSEEK_MODEL` | 模型名称 | deepseek-chat |
+| `WX_APPID` | 微信小程序 AppID（生产必填） | — |
+| `WX_SECRET` | 微信小程序 AppSecret，仅保存在后端（生产必填） | — |
+| `SECRET_KEY` | 应用登录 token 签名密钥，生产需至少 32 位随机值 | — |
+| `AUTH_TOKEN_EXPIRE_DAYS` | 应用登录有效期（天） | 30 |
+| `WX_MOCK_LOGIN` | 本地固定身份模拟登录，仅允许 development | false |
+
+## 微信登录流程
+
+1. 小程序调用 `wx.login` 获取一次性临时 code，并发送到 `POST /api/auth/login`。
+2. 后端使用 `WX_APPID`、`WX_SECRET` 和 code 请求微信 `code2Session`，openid 和 session_key 不下发给小程序。
+3. 后端按 openid 查找或创建用户，并签发有过期时间的应用 Bearer token。
+4. 小程序缓存 token，启动时调用 `GET /api/auth/me` 恢复会话；受保护请求统一携带 `Authorization: Bearer <token>`。
+5. token 失效时，小程序重新执行一次 `wx.login` 并重试原请求；退出登录会清除本机 token。
+
+本地联调若暂时没有可用的微信配置，可在 `.env` 设置
+`APP_ENV=development` 和 `WX_MOCK_LOGIN=true`。mock openid 是固定值，避免每次登录创建新用户；生产环境启动时会强制拒绝 mock 登录、空微信密钥或弱 `SECRET_KEY`。
 
 ## 生产部署
 

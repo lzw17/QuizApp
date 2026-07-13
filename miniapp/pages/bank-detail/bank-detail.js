@@ -31,7 +31,7 @@ Page({
     const uid = await getUserId();
     if (!uid || !this.data.bankId) return;
     try {
-      const p = await request({ url: `/api/progress/${this.data.bankId}?user_id=${uid}` });
+      const p = await request({ url: `/api/progress/${this.data.bankId}` });
       this.setData({ progress: p });
     } catch {}
   },

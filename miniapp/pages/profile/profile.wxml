@@ -78,9 +78,14 @@
       <text class="sc-label">导入资料</text>
       <text class="sc-arrow">›</text>
     </view>
-    <view class="shortcut-divider"></view>
+    <view class="shortcut-divider" wx:if="{{userInfo.is_admin}}"></view>
     <view class="shortcut-item" bindtap="goManage" wx:if="{{userInfo.is_admin}}">
       <text class="sc-label">题库管理</text>
+      <text class="sc-arrow">›</text>
+    </view>
+    <view class="shortcut-divider"></view>
+    <view class="shortcut-item" bindtap="logout">
+      <text class="sc-label logout-label">退出登录</text>
       <text class="sc-arrow">›</text>
     </view>
   </view>

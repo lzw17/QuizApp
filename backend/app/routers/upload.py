@@ -14,8 +14,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..auth import get_current_user
 from ..database import get_db, SessionLocal
 from ..models.question import GenerateTask, QuestionBank
+from ..models.user import User
 from ..schemas.question import UploadResponse, GenerateTaskOut
 from ..schemas.question import QuestionBankCreate
 from ..services.question_service import create_bank, run_generate_task
@@ -53,6 +55,7 @@ async def upload_file(
     bank_category: str = Form(""),
     num_direct: int = Form(3),
     num_logic: int = Form(2),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """上传 PDF/Word 文档，异步生成题库"""
@@ -81,6 +84,7 @@ async def upload_file(
     bank = create_bank(db, bank_data)
     bank.source_file = save_path
     bank.source_type = source_type
+    bank.created_by = current_user.openid
     db.commit()
 
     # 创建任务记录
@@ -107,6 +111,7 @@ async def upload_file(
 async def upload_url(
     background_tasks: BackgroundTasks,
     data: UrlUploadRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """提交 URL，爬取页面内容并生成题库"""
@@ -124,6 +129,7 @@ async def upload_url(
     bank = create_bank(db, bank_data)
     bank.source_file = url
     bank.source_type = "url"
+    bank.created_by = current_user.openid
     db.commit()
 
     task = GenerateTask(id=task_id, bank_id=bank.id, message="任务已创建...")
@@ -144,19 +150,36 @@ async def upload_url(
     return UploadResponse(task_id=task_id, bank_id=bank.id, message="URL 提交成功，正在生成题库...")
 
 
-@router.get("/task/{task_id}", response_model=GenerateTaskOut)
-def get_task(task_id: str, db: Session = Depends(get_db)):
-    """查询出题任务状态（轮询模式）"""
+def _get_owned_task(db: Session, task_id: str, current_user: User) -> GenerateTask:
     task = db.query(GenerateTask).filter(GenerateTask.id == task_id).first()
     if not task:
         raise HTTPException(404, "任务不存在")
+    bank = db.query(QuestionBank).filter(QuestionBank.id == task.bank_id).first()
+    if not current_user.is_admin and (not bank or bank.created_by != current_user.openid):
+        raise HTTPException(403, "无权查看此任务")
     return task
 
 
+@router.get("/task/{task_id}", response_model=GenerateTaskOut)
+def get_task(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """查询出题任务状态（轮询模式）"""
+    return _get_owned_task(db, task_id, current_user)
+
+
 @router.get("/task/{task_id}/sse")
-async def task_sse(task_id: str, db: Session = Depends(get_db)):
+async def task_sse(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """SSE 实时推送出题进度"""
     import json
+
+    _get_owned_task(db, task_id, current_user)
 
     async def event_generator():
         while True:

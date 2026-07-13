@@ -147,7 +147,6 @@ Page({
         url: '/api/exam/submit',
         method: 'POST',
         data: {
-          user_id: uid,
           bank_id: this.data.bankId,
           answers,
           total_time: this.data.examMinutes * 60 - this.data.timeLeft,

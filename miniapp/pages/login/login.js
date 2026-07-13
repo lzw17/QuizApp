@@ -1,4 +1,5 @@
 const app = getApp();
+const { request, uploadFile } = require('../../utils/request');
 
 Page({
   data: {
@@ -11,12 +12,16 @@ Page({
     isEdit: false,
   },
 
-  onLoad(options) {
+  async onLoad(options) {
     const isEdit = options.edit === '1';
     this.setData({ isEdit });
+    const user = await app.ensureLogin();
 
     if (isEdit) {
-      const user = app.globalData.userInfo || wx.getStorageSync('userInfo') || {};
+      if (!user) {
+        wx.reLaunch({ url: '/pages/login/login' });
+        return;
+      }
       this.setData({
         stage: 'setup',
         userId: user.id,
@@ -26,13 +31,9 @@ Page({
       return;
     }
 
-    const cached = wx.getStorageSync('userInfo');
-    if (cached && cached.id) {
-      // 有缓存直接进首页
+    if (user) {
       wx.reLaunch({ url: '/pages/index/index' });
-      return;
     }
-    // 无缓存时 stage 保持 'login'，显示登录按钮
   },
 
   async onWxLogin() {
@@ -41,10 +42,20 @@ Page({
     try {
       const user = await app.wxLogin();
       if (!user) throw new Error('登录失败');
-      wx.reLaunch({ url: '/pages/index/index' });
-    } catch {
+      if (app.globalData.isNewUser) {
+        this.setData({
+          stage: 'setup',
+          logging: false,
+          userId: user.id,
+          avatarUrl: user.avatar || '',
+          nickname: '',
+        });
+      } else {
+        wx.reLaunch({ url: '/pages/index/index' });
+      }
+    } catch (error) {
       this.setData({ logging: false });
-      wx.showToast({ title: '登录失败，请重试', icon: 'none' });
+      wx.showToast({ title: error.message || '登录失败，请重试', icon: 'none' });
     }
   },
 
@@ -57,20 +68,20 @@ Page({
   },
 
   async onSubmit() {
-    const { avatarUrl, nickname, userId, isEdit } = this.data;
+    const { avatarUrl, nickname, isEdit } = this.data;
     if (!nickname.trim()) {
       wx.showToast({ title: '请输入昵称', icon: 'none' }); return;
     }
-    if (!userId) {
+    if (!app.globalData.accessToken) {
       wx.showToast({ title: '请先登录', icon: 'none' }); return;
     }
     this.setData({ submitting: true });
     try {
       let finalAvatar = avatarUrl;
       if (avatarUrl && (avatarUrl.startsWith('wxfile://') || avatarUrl.includes('/tmp/'))) {
-        finalAvatar = await this._uploadAvatar(avatarUrl, userId);
+        finalAvatar = await this._uploadAvatar(avatarUrl);
       }
-      await this._updateProfile(userId, nickname.trim(), finalAvatar);
+      await this._updateProfile(nickname.trim(), finalAvatar);
       wx.showToast({ title: isEdit ? '修改成功' : '设置成功', icon: 'success' });
       setTimeout(() => {
         isEdit ? wx.navigateBack() : wx.reLaunch({ url: '/pages/index/index' });
@@ -84,46 +95,18 @@ Page({
     wx.reLaunch({ url: '/pages/index/index' });
   },
 
-  _uploadAvatar(filePath, userId) {
-    return new Promise((resolve) => {
-      wx.uploadFile({
-        url: `${app.globalData.baseUrl}/api/auth/avatar`,
-        filePath,
-        name: 'file',
-        formData: { user_id: String(userId) },
-        success(res) {
-          try {
-            const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
-            resolve(res.statusCode === 200 && data.avatar_url ? data.avatar_url : filePath);
-          } catch { resolve(filePath); }
-        },
-        fail: () => resolve(filePath),
-      });
-    });
+  async _uploadAvatar(filePath) {
+    const data = await uploadFile(filePath, {}, { url: '/api/auth/avatar' });
+    return data.avatar_url || '';
   },
 
-  _updateProfile(userId, nickname, avatar) {
-    return new Promise((resolve, reject) => {
-      wx.request({
-        url: `${app.globalData.baseUrl}/api/auth/profile`,
-        method: 'PUT',
-        data: { user_id: userId, nickname, avatar },
-        header: { 'Content-Type': 'application/json' },
-        success(res) {
-          if (res.statusCode === 200) {
-            app.globalData.userInfo = res.data;
-            wx.setStorageSync('userInfo', res.data);
-            resolve(res.data);
-          } else {
-            wx.showToast({ title: '更新失败，请重试', icon: 'none' });
-            reject(new Error('更新失败'));
-          }
-        },
-        fail(err) {
-          wx.showToast({ title: '网络错误', icon: 'none' });
-          reject(err);
-        },
-      });
+  async _updateProfile(nickname, avatar) {
+    const user = await request({
+      url: '/api/auth/profile',
+      method: 'PUT',
+      data: { nickname, avatar },
     });
+    app._setSession(user, app.globalData.accessToken);
+    return user;
   },
 });

@@ -37,6 +37,7 @@ if os.path.exists(settings.UPLOAD_DIR):
 
 @app.on_event("startup")
 async def startup():
+    settings.validate_runtime_security()
     create_tables()
 
 

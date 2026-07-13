@@ -49,8 +49,8 @@ Page({
     const uid = await getUserId();
     if (!uid) return;
     try {
-      let url = `/api/wrong-questions?user_id=${uid}`;
-      if (this.data.filterBankId) url += `&bank_id=${this.data.filterBankId}`;
+      let url = '/api/wrong-questions';
+      if (this.data.filterBankId) url += `?bank_id=${this.data.filterBankId}`;
       const list = await request({ url });
       this.setData({ wrongList: list.map(item => ({
         ...item,
@@ -66,7 +66,7 @@ Page({
     const starQuestions = [];
     for (const bank of banks) {
       try {
-        const p = await request({ url: `/api/progress/${bank.id}?user_id=${uid}` });
+        const p = await request({ url: `/api/progress/${bank.id}` });
         if (p.starred_ids && p.starred_ids.length > 0) {
           for (const qid of p.starred_ids) {
             try {
@@ -92,7 +92,7 @@ Page({
     if (!uid) return;
     const { id, bank } = e.currentTarget.dataset;
     try {
-      await request({ url: '/api/star', method: 'POST', data: { user_id: uid, bank_id: bank, question_id: id } });
+      await request({ url: '/api/star', method: 'POST', data: { bank_id: bank, question_id: id } });
       this._loadStars();
     } catch {}
   },

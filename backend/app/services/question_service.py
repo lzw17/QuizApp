@@ -132,7 +132,7 @@ def get_starred_questions(db: Session, user_id: int, bank_id: int) -> List[Quest
 #  答题逻辑
 # ──────────────────────────────────────────
 
-def submit_answer(db: Session, data: AnswerSubmit) -> AnswerResult:
+def submit_answer(db: Session, data: AnswerSubmit, user_id: int) -> AnswerResult:
     question = db.query(Question).filter(Question.id == data.question_id).first()
     if not question:
         raise ValueError("题目不存在")
@@ -144,7 +144,7 @@ def submit_answer(db: Session, data: AnswerSubmit) -> AnswerResult:
 
     # 写入答题记录
     record = AnswerRecord(
-        user_id=data.user_id,
+        user_id=user_id,
         question_id=data.question_id,
         bank_id=data.bank_id,
         user_answer=data.user_answer,
@@ -163,12 +163,12 @@ def submit_answer(db: Session, data: AnswerSubmit) -> AnswerResult:
 
     # 更新用户进度
     progress = db.query(UserProgress).filter(
-        UserProgress.user_id == data.user_id,
+        UserProgress.user_id == user_id,
         UserProgress.bank_id == data.bank_id,
     ).first()
     if not progress:
         progress = UserProgress(
-            user_id=data.user_id,
+            user_id=user_id,
             bank_id=data.bank_id,
             starred_ids=[],
         )

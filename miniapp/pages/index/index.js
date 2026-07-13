@@ -70,7 +70,7 @@ Page({
     if (!uid) return;
     this.setData({ userId: uid });
     try {
-      const stats = await request({ url: `/api/stats?user_id=${uid}` });
+      const stats = await request({ url: '/api/stats' });
       this.setData({ stats });
     } catch {}
   },

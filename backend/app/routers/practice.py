@@ -9,13 +9,14 @@ GET  /api/progress/{bank_id}  获取用户在该题库的进度
 GET  /api/stats               获取个人学习统计
 """
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from ..database import get_db
+from ..auth import get_current_user
 from ..models.question import Question
-from ..models.user import UserProgress
+from ..models.user import User, UserProgress
 from ..schemas.user import AnswerSubmit, AnswerResult, UserStatsOut, UserProgressOut
 from ..services.question_service import (
     submit_answer, toggle_star, update_progress_position,
@@ -30,10 +31,14 @@ router = APIRouter(prefix="/api", tags=["practice"])
 # ──────────────────────────────────────────
 
 @router.post("/answer", response_model=AnswerResult)
-def answer_question(data: AnswerSubmit, db: Session = Depends(get_db)):
+def answer_question(
+    data: AnswerSubmit,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """提交单题答案，返回是否正确 + 解析"""
     try:
-        return submit_answer(db, data)
+        return submit_answer(db, data, current_user.id)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -49,7 +54,6 @@ class ExamAnswerItem(BaseModel):
 
 
 class ExamSubmitRequest(BaseModel):
-    user_id: int
     bank_id: int
     answers: List[ExamAnswerItem]
     total_time: int = 0  # 总用时（秒）
@@ -75,14 +79,17 @@ class ExamSubmitResult(BaseModel):
 
 
 @router.post("/exam/submit", response_model=ExamSubmitResult)
-def submit_exam(data: ExamSubmitRequest, db: Session = Depends(get_db)):
+def submit_exam(
+    data: ExamSubmitRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """模拟考试批量交卷判分"""
     results = []
     correct_count = 0
 
     for item in data.answers:
         submit = AnswerSubmit(
-            user_id=data.user_id,
             question_id=item.question_id,
             bank_id=data.bank_id,
             user_answer=item.user_answer,
@@ -90,7 +97,7 @@ def submit_exam(data: ExamSubmitRequest, db: Session = Depends(get_db)):
             mode="exam",
         )
         try:
-            result = submit_answer(db, submit)
+            result = submit_answer(db, submit, current_user.id)
             question = db.query(Question).filter(Question.id == item.question_id).first()
             results.append(ExamResultItem(
                 question_id=item.question_id,
@@ -125,12 +132,12 @@ def submit_exam(data: ExamSubmitRequest, db: Session = Depends(get_db)):
 
 @router.get("/wrong-questions")
 def list_wrong_questions(
-    user_id: int = Query(...),
     bank_id: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """获取用户错题列表（每题只显示最近一次答错）"""
-    return get_wrong_questions(db, user_id, bank_id)
+    return get_wrong_questions(db, current_user.id, bank_id)
 
 
 # ──────────────────────────────────────────
@@ -138,14 +145,17 @@ def list_wrong_questions(
 # ──────────────────────────────────────────
 
 class StarRequest(BaseModel):
-    user_id: int
     bank_id: int
     question_id: int
 
 
 @router.post("/star")
-def star_question(data: StarRequest, db: Session = Depends(get_db)):
-    is_starred = toggle_star(db, data.user_id, data.bank_id, data.question_id)
+def star_question(
+    data: StarRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    is_starred = toggle_star(db, current_user.id, data.bank_id, data.question_id)
     return {"is_starred": is_starred, "question_id": data.question_id}
 
 
@@ -154,25 +164,28 @@ def star_question(data: StarRequest, db: Session = Depends(get_db)):
 # ──────────────────────────────────────────
 
 class ProgressUpdateRequest(BaseModel):
-    user_id: int
     bank_id: int
     position: int
 
 
 @router.post("/progress")
-def update_progress(data: ProgressUpdateRequest, db: Session = Depends(get_db)):
-    update_progress_position(db, data.user_id, data.bank_id, data.position)
+def update_progress(
+    data: ProgressUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    update_progress_position(db, current_user.id, data.bank_id, data.position)
     return {"message": "进度已保存"}
 
 
 @router.get("/progress/{bank_id}", response_model=UserProgressOut)
 def get_progress(
     bank_id: int,
-    user_id: int = Query(...),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     progress = db.query(UserProgress).filter(
-        UserProgress.user_id == user_id,
+        UserProgress.user_id == current_user.id,
         UserProgress.bank_id == bank_id,
     ).first()
     if not progress:
@@ -203,5 +216,8 @@ def get_progress(
 # ──────────────────────────────────────────
 
 @router.get("/stats", response_model=UserStatsOut)
-def get_stats(user_id: int = Query(...), db: Session = Depends(get_db)):
-    return get_user_stats(db, user_id)
+def get_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return get_user_stats(db, current_user.id)

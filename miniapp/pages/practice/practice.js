@@ -56,7 +56,6 @@ Page({
           this.setData({ loading: false, done: true });
           return;
         }
-        query += `&user_id=${uid}`;
       }
       if (this.data.tag) query += `&tag=${encodeURIComponent(this.data.tag)}`;
       const list = await request({ url: `/api/questions?${query}` });
@@ -79,7 +78,7 @@ Page({
     const uid = await getUserId();
     if (!uid) return;
     try {
-      const p = await request({ url: `/api/progress/${this.data.bankId}?user_id=${uid}` });
+      const p = await request({ url: `/api/progress/${this.data.bankId}` });
       const starredIds = p.starred_ids || [];
       this.setData({
         starredIds,
@@ -149,7 +148,6 @@ Page({
         url: '/api/answer',
         method: 'POST',
         data: {
-          user_id: uid,
           question_id: question.id,
           bank_id: bankId,
           user_answer: selectedAnswer,
@@ -169,7 +167,7 @@ Page({
         request({
           url: '/api/progress',
           method: 'POST',
-          data: { user_id: uid, bank_id: bankId, position: this.data.startSkip + this.data.currentIndex + 1 },
+          data: { bank_id: bankId, position: this.data.startSkip + this.data.currentIndex + 1 },
         }).catch(() => {});
       }
     } catch {}
@@ -198,7 +196,7 @@ Page({
       const result = await request({
         url: '/api/star',
         method: 'POST',
-        data: { user_id: uid, bank_id: this.data.bankId, question_id: this.data.question.id },
+        data: { bank_id: this.data.bankId, question_id: this.data.question.id },
       });
       const starredIds = result.is_starred
         ? [...new Set([...this.data.starredIds, this.data.question.id])]

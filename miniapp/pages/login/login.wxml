@@ -38,7 +38,7 @@
       </view>
     </button>
 
-    <text class="privacy-tip">登录即代表同意《用户协议》与《隐私政策》</text>
+    <text class="privacy-tip">登录仅用于识别账号并同步学习记录</text>
   </view>
 
   <!-- ===== 阶段二：完善资料 ===== -->
