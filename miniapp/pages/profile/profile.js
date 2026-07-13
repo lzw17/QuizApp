@@ -42,6 +42,7 @@ Page({
     return '初学者';
   },
 
+  goEditProfile() { wx.navigateTo({ url: '/pages/login/login?edit=1' }); },
   goWrongBook() { wx.switchTab({ url: '/pages/wrong-book/wrong-book' }); },
   goUpload()    { wx.navigateTo({ url: '/pages/upload/upload' }); },
   goManage()    { wx.navigateTo({ url: '/pages/manage/manage' }); },

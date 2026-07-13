@@ -19,6 +19,16 @@
   position: relative;
   z-index: 1;
 }
+.user-main {
+  display: flex;
+  align-items: center;
+  gap: 30rpx;
+  flex: 1;
+}
+.edit-icon {
+  font-size: 36rpx;
+  opacity: 0.85;
+}
 .avatar { width: 120rpx; height: 120rpx; border-radius: 50%; border: 4rpx solid rgba(255,255,255,0.6); }
 .avatar-placeholder {
   background: rgba(255,255,255,0.25);

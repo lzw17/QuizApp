@@ -3,13 +3,16 @@
   <!-- 用户信息 -->
   <view class="user-card" style="padding-top: {{statusBarHeight + 10}}px;">
     <image class="user-card-bg" src="/images/page/bg.jpg" mode="aspectFill" />
-    <image wx:if="{{userInfo.avatar}}" class="avatar" src="{{userInfo.avatar}}" mode="aspectFill" />
-    <view wx:else class="avatar avatar-placeholder">
-      <text class="avatar-initial">{{userInfo.nickname ? userInfo.nickname[0] : '?'}}</text>
-    </view>
-    <view class="user-info">
-      <view class="username">{{userInfo.nickname || '未登录'}}</view>
-      <view class="user-level tag">{{levelLabel}}</view>
+    <view class="user-main" bindtap="goEditProfile">
+      <image wx:if="{{userInfo.avatar}}" class="avatar" src="{{userInfo.avatar}}" mode="aspectFill" />
+      <view wx:else class="avatar avatar-placeholder">
+        <text class="avatar-initial">{{userInfo.nickname ? userInfo.nickname[0] : '?'}}</text>
+      </view>
+      <view class="user-info">
+        <view class="username">{{userInfo.nickname || '未登录'}}</view>
+        <view class="user-level tag">{{levelLabel}}</view>
+      </view>
+      <text class="edit-icon">✏️</text>
     </view>
   </view>
 

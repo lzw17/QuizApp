@@ -6,8 +6,8 @@ from datetime import datetime
 class UserOut(BaseModel):
     id: int
     openid: str
-    nickname: str
-    avatar: str
+    nickname: Optional[str] = ""
+    avatar: Optional[str] = ""
     is_admin: bool
 
     class Config:
