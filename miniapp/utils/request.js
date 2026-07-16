@@ -1,7 +1,16 @@
 const app = getApp();
 
 function request(options) {
-  return app.ensureLogin().then(() => _request(options, false));
+  return requireSession().then(() => _request(options, false));
+}
+
+function requireSession() {
+  return app.ensureLogin().then(user => {
+    if (!user || !app.globalData.accessToken) {
+      throw new Error('请先登录');
+    }
+    return user;
+  });
 }
 
 function _request(options, retried) {
@@ -52,7 +61,7 @@ function getUserId() {
 
 /** 上传文件（multipart/form-data） */
 function uploadFile(filePath, formData = {}, options = {}) {
-  return app.ensureLogin().then(() => _uploadFile(filePath, formData, options, false));
+  return requireSession().then(() => _uploadFile(filePath, formData, options, false));
 }
 
 function _uploadFile(filePath, formData, options, retried) {

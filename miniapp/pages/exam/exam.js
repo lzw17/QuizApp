@@ -52,9 +52,9 @@ Page({
         examMinutes: minutes,
         answeredCount: 0,
       });
-      wx.hideLoading();
       this._startTimer();
     } catch {
+    } finally {
       wx.hideLoading();
     }
   },
@@ -131,18 +131,17 @@ Page({
   async _doSubmit() {
     this._clearTimer();
     wx.showLoading({ title: '评分中...' });
-    const uid = await getUserId();
-    if (!uid) {
-      wx.hideLoading();
-      wx.showToast({ title: '登录失败，请重试', icon: 'none' });
-      return;
-    }
-    const answers = this.data.questions.map((q, i) => ({
-      question_id: q.id,
-      user_answer: this.data.userAnswers[i] || '',
-      time_spent: 0,
-    }));
     try {
+      const uid = await getUserId();
+      if (!uid) {
+        wx.showToast({ title: '登录失败，请重试', icon: 'none' });
+        return;
+      }
+      const answers = this.data.questions.map((q, i) => ({
+        question_id: q.id,
+        user_answer: this.data.userAnswers[i] || '',
+        time_spent: 0,
+      }));
       const result = await request({
         url: '/api/exam/submit',
         method: 'POST',
@@ -152,13 +151,13 @@ Page({
           total_time: this.data.examMinutes * 60 - this.data.timeLeft,
         },
       });
-      wx.hideLoading();
       // 跳转结果页
       const resultStr = encodeURIComponent(JSON.stringify(result));
       wx.redirectTo({
         url: `/pages/result/result?data=${resultStr}&bank_id=${this.data.bankId}&bank_name=${encodeURIComponent(this.data.bankName)}`,
       });
     } catch {
+    } finally {
       wx.hideLoading();
     }
   },

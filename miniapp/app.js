@@ -7,6 +7,7 @@ App({
     sessionRestorePromise: null,
     sessionVersion: 0,
     isNewUser: false,
+    profileRequired: false,
     baseUrl: 'https://your-server.com', // 生产环境改为实际域名
     devLanUrl: 'http://192.168.71.4:8000', // 局域网真机调试用
   },
@@ -21,23 +22,40 @@ App({
         ? 'http://127.0.0.1:8000'
         : this.globalData.devLanUrl;
     }
-    const restorePromise = this._restoreSession();
-    this.globalData.sessionRestorePromise = restorePromise;
-    restorePromise.finally(() => {
-      if (this.globalData.sessionRestorePromise === restorePromise) {
+    const sessionPromise = this._initializeSession();
+    this.globalData.sessionRestorePromise = sessionPromise;
+    sessionPromise.finally(() => {
+      if (this.globalData.sessionRestorePromise === sessionPromise) {
         this.globalData.sessionRestorePromise = null;
       }
     });
   },
 
-  ensureLogin() {
+  ensureLogin(options = {}) {
     if (this.globalData.userId && this.globalData.accessToken) {
       return Promise.resolve(this.globalData.userInfo);
     }
     if (this.globalData.sessionRestorePromise) {
       return this.globalData.sessionRestorePromise;
     }
-    return Promise.resolve(null);
+    if (options.autoLogin === false || wx.getStorageSync('manualLoginRequired')) {
+      return Promise.resolve(null);
+    }
+    return this._startWxLogin(false);
+  },
+
+  async _initializeSession() {
+    const restoredUser = await this._restoreSession();
+    if (restoredUser || wx.getStorageSync('manualLoginRequired')) {
+      return restoredUser;
+    }
+
+    try {
+      return await this._startWxLogin(false);
+    } catch {
+      // 启动时静默登录失败应保留登录页，由用户点击按钮重试。
+      return null;
+    }
   },
 
   _restoreSession() {
@@ -84,6 +102,7 @@ App({
 
   wxLogin(options = {}) {
     const force = options.force === true;
+    wx.removeStorageSync('manualLoginRequired');
     if (this.globalData.sessionRestorePromise) {
       return this.globalData.sessionRestorePromise.then(user => {
         if (user && !force) return user;
@@ -129,6 +148,7 @@ App({
             const isNew = r.data.is_new;
             self.globalData.isNewUser = isNew;
             self._setSession(user, token);
+            wx.removeStorageSync('manualLoginRequired');
             resolve(user);
           } else {
             const message = (r.data && r.data.detail) || `登录失败 (${r.statusCode})`;
@@ -141,9 +161,12 @@ App({
   },
 
   _setSession(user, token) {
+    const nickname = (user.nickname || '').trim();
+    const setupSkipped = wx.getStorageSync(`profileSetupSkipped:${user.id}`);
     this.globalData.userInfo = user;
     this.globalData.userId = user.id;
     this.globalData.accessToken = token;
+    this.globalData.profileRequired = (!nickname || nickname === '微信用户') && !setupSkipped;
     wx.setStorageSync('userInfo', user);
     wx.setStorageSync('accessToken', token);
   },
@@ -154,12 +177,14 @@ App({
     this.globalData.userId = null;
     this.globalData.accessToken = '';
     this.globalData.isNewUser = false;
+    this.globalData.profileRequired = false;
     wx.removeStorageSync('userInfo');
     wx.removeStorageSync('accessToken');
   },
 
   logout() {
     this.clearSession();
+    wx.setStorageSync('manualLoginRequired', true);
     wx.reLaunch({ url: '/pages/login/login' });
   },
 });

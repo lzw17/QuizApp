@@ -1,3 +1,4 @@
+import asyncio
 import os
 import tempfile
 import time
@@ -22,6 +23,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.database import engine
 from backend.app.main import app
+from backend.app.routers.auth import _get_wechat_session
 
 
 class AuthFlowTest(unittest.TestCase):
@@ -54,6 +56,49 @@ class AuthFlowTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["id"], session["user"]["id"])
+
+    def test_code2session_collects_server_side_identity(self):
+        captured = {}
+
+        class FakeResponse:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "openid": "wx-openid",
+                    "session_key": "wx-session-key",
+                    "unionid": "wx-unionid",
+                }
+
+        class FakeClient:
+            def __init__(self, timeout):
+                captured["timeout"] = timeout
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, traceback):
+                return False
+
+            async def get(self, url, params):
+                captured["url"] = url
+                captured["params"] = params
+                return FakeResponse()
+
+        with (
+            patch("backend.app.routers.auth.settings.WX_MOCK_LOGIN", False),
+            patch("backend.app.routers.auth.settings.WX_APPID", "test-appid"),
+            patch("backend.app.routers.auth.settings.WX_SECRET", "test-secret"),
+            patch("backend.app.routers.auth.httpx.AsyncClient", FakeClient),
+        ):
+            wechat_session = asyncio.run(_get_wechat_session("one-time-code"))
+
+        self.assertEqual(wechat_session.openid, "wx-openid")
+        self.assertEqual(wechat_session.unionid, "wx-unionid")
+        self.assertEqual(wechat_session.session_key, "wx-session-key")
+        self.assertEqual(captured["params"]["js_code"], "one-time-code")
+        self.assertEqual(captured["params"]["grant_type"], "authorization_code")
 
     def test_protected_routes_reject_missing_and_tampered_tokens(self):
         self.assertEqual(self.client.get("/api/stats").status_code, 401)

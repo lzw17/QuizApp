@@ -97,11 +97,15 @@ python run.py
 
 ## 微信登录流程
 
-1. 小程序调用 `wx.login` 获取一次性临时 code，并发送到 `POST /api/auth/login`。
-2. 后端使用 `WX_APPID`、`WX_SECRET` 和 code 请求微信 `code2Session`，openid 和 session_key 不下发给小程序。
-3. 后端按 openid 查找或创建用户，并签发有过期时间的应用 Bearer token。
-4. 小程序缓存 token，启动时调用 `GET /api/auth/me` 恢复会话；受保护请求统一携带 `Authorization: Bearer <token>`。
-5. token 失效时，小程序重新执行一次 `wx.login` 并重试原请求；退出登录会清除本机 token。
+1. 小程序启动时先使用本地 token 请求 `GET /api/auth/me`；无 token 或 token 失效时自动调用 `wx.login`。
+2. 小程序获取一次性临时 code，并发送到 `POST /api/auth/login`。
+3. 后端使用 `WX_APPID`、`WX_SECRET` 和 code 请求微信 `code2Session`，openid 和 session_key 不下发给小程序。
+4. 后端按 openid 查找或创建用户，并签发有过期时间的应用 Bearer token。
+5. 老用户直接进入首页；新用户使用微信头像选择和昵称填写组件完善资料。
+6. 受保护请求统一携带 `Authorization: Bearer <token>`；遇到 401 时自动重新登录并重试一次。
+7. 用户主动退出会清除本机 token 并暂停自动登录，直到再次点击微信登录按钮。
+
+完整的能力边界、接口约定和上线检查见 [微信小程序登录方案](docs/wechat-login.md)。
 
 本地联调若暂时没有可用的微信配置，可在 `.env` 设置
 `APP_ENV=development` 和 `WX_MOCK_LOGIN=true`。mock openid 是固定值，避免每次登录创建新用户；生产环境启动时会强制拒绝 mock 登录、空微信密钥或弱 `SECRET_KEY`。

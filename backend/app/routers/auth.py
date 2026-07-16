@@ -8,6 +8,7 @@ PUT  /api/auth/profile        更新昵称/头像 URL
 import os
 import uuid
 from datetime import datetime
+from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
@@ -30,6 +31,14 @@ class LoginRequest(BaseModel):
     code: str = Field(min_length=1, max_length=128)
 
 
+class WeChatSession(BaseModel):
+    """Identity returned by code2Session; never serialized to the mini program."""
+
+    openid: str
+    session_key: str
+    unionid: Optional[str] = None
+
+
 class LoginResponse(BaseModel):
     user: UserOut
     is_new: bool
@@ -44,7 +53,8 @@ async def wx_login(data: LoginRequest, db: Session = Depends(get_db)):
     微信小程序登录：用 code 换取 openid
     仅开发环境显式开启 WX_MOCK_LOGIN 时使用固定 mock 身份
     """
-    openid = await _get_openid(data.code.strip())
+    wechat_session = await _get_wechat_session(data.code.strip())
+    openid = wechat_session.openid
 
     user = db.query(User).filter(User.openid == openid).first()
     is_new = False
@@ -142,12 +152,15 @@ def update_profile(
     return UserOut.model_validate(current_user)
 
 
-async def _get_openid(code: str) -> str:
-    """Exchange a one-time WeChat code for openid on the trusted server."""
+async def _get_wechat_session(code: str) -> WeChatSession:
+    """Exchange a one-time code for a trusted server-side WeChat session."""
     if settings.WX_MOCK_LOGIN:
         if settings.APP_ENV.lower() != "development":
             raise HTTPException(500, "生产环境禁止使用模拟微信登录")
-        return f"mock_{settings.WX_MOCK_OPENID}"
+        return WeChatSession(
+            openid=f"mock_{settings.WX_MOCK_OPENID}",
+            session_key="mock-session-key",
+        )
 
     if not settings.WX_APPID or not settings.WX_SECRET:
         raise HTTPException(503, "微信登录尚未配置")
@@ -168,12 +181,15 @@ async def _get_openid(code: str) -> str:
     except (httpx.HTTPError, ValueError):
         raise HTTPException(502, "微信服务暂时不可用，请稍后重试")
 
-    if result.get("errcode", 0) != 0:
-        if result.get("errcode") in (40029, 40163):
+    errcode = result.get("errcode", 0)
+    if errcode != 0:
+        if errcode in (40029, 40163):
             raise HTTPException(400, "微信登录凭证无效或已使用，请重试")
-        if result.get("errcode") == 45011:
+        if errcode == 45011:
             raise HTTPException(429, "登录过于频繁，请稍后重试")
         raise HTTPException(502, "微信登录服务返回异常")
     if not result.get("openid"):
         raise HTTPException(502, "微信登录响应缺少用户标识")
-    return result["openid"]
+    if not result.get("session_key"):
+        raise HTTPException(502, "微信登录响应缺少会话密钥")
+    return WeChatSession.model_validate(result)

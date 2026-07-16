@@ -14,8 +14,12 @@ Page({
 
   async onLoad(options) {
     const isEdit = options.edit === '1';
-    this.setData({ isEdit });
-    const user = await app.ensureLogin();
+    this.setData({ isEdit, logging: !isEdit });
+    let user = null;
+    try {
+      user = await app.ensureLogin({ autoLogin: !isEdit });
+    } catch {}
+    this.setData({ logging: false });
 
     if (isEdit) {
       if (!user) {
@@ -31,9 +35,7 @@ Page({
       return;
     }
 
-    if (user) {
-      wx.reLaunch({ url: '/pages/index/index' });
-    }
+    if (user) this._continueAfterLogin(user);
   },
 
   async onWxLogin() {
@@ -42,21 +44,25 @@ Page({
     try {
       const user = await app.wxLogin();
       if (!user) throw new Error('登录失败');
-      if (app.globalData.isNewUser) {
-        this.setData({
-          stage: 'setup',
-          logging: false,
-          userId: user.id,
-          avatarUrl: user.avatar || '',
-          nickname: '',
-        });
-      } else {
-        wx.reLaunch({ url: '/pages/index/index' });
-      }
+      this._continueAfterLogin(user);
     } catch (error) {
       this.setData({ logging: false });
       wx.showToast({ title: error.message || '登录失败，请重试', icon: 'none' });
     }
+  },
+
+  _continueAfterLogin(user) {
+    if (app.globalData.isNewUser || app.globalData.profileRequired) {
+      this.setData({
+        stage: 'setup',
+        logging: false,
+        userId: user.id,
+        avatarUrl: user.avatar || '',
+        nickname: '',
+      });
+      return;
+    }
+    wx.reLaunch({ url: '/pages/index/index' });
   },
 
   onChooseAvatar(e) {
@@ -82,6 +88,9 @@ Page({
         finalAvatar = await this._uploadAvatar(avatarUrl);
       }
       await this._updateProfile(nickname.trim(), finalAvatar);
+      wx.removeStorageSync(`profileSetupSkipped:${app.globalData.userId}`);
+      app.globalData.isNewUser = false;
+      app.globalData.profileRequired = false;
       wx.showToast({ title: isEdit ? '修改成功' : '设置成功', icon: 'success' });
       setTimeout(() => {
         isEdit ? wx.navigateBack() : wx.reLaunch({ url: '/pages/index/index' });
@@ -92,6 +101,9 @@ Page({
   },
 
   onSkip() {
+    wx.setStorageSync(`profileSetupSkipped:${app.globalData.userId}`, true);
+    app.globalData.isNewUser = false;
+    app.globalData.profileRequired = false;
     wx.reLaunch({ url: '/pages/index/index' });
   },
 
