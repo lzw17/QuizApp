@@ -11,6 +11,7 @@ Page({
     userId: null,
     page: 0,
     hasMore: true,
+    deletingBankId: null,
     statusBarHeight: 0,
   },
 
@@ -88,5 +89,32 @@ Page({
   goDetail(e) {
     const id = e.currentTarget.dataset.id;
     wx.navigateTo({ url: `/pages/bank-detail/bank-detail?id=${id}` });
+  },
+
+  deleteBank(e) {
+    const id = Number(e.currentTarget.dataset.id);
+    const bank = this.data.banks.find(item => item.id === id);
+    if (!bank || !bank.can_delete || this.data.deletingBankId) return;
+
+    wx.showModal({
+      title: '删除题库',
+      content: `确定删除“${bank.name}”吗？题库和题目将不再显示，历史学习记录会保留。`,
+      confirmText: '删除',
+      confirmColor: '#E5484D',
+      success: async res => {
+        if (!res.confirm) return;
+        this.setData({ deletingBankId: id });
+        try {
+          await request({ url: `/api/banks/${id}`, method: 'DELETE' });
+          const banks = this.data.banks.filter(item => item.id !== id);
+          const categories = [...new Set(banks.map(item => item.category).filter(Boolean))];
+          this.setData({ banks, categories });
+          wx.showToast({ title: '题库已删除', icon: 'success' });
+        } catch {
+        } finally {
+          this.setData({ deletingBankId: null });
+        }
+      },
+    });
   },
 });

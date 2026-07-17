@@ -47,6 +47,17 @@ class LoginResponse(BaseModel):
     expires_in: int
 
 
+def _is_configured_admin(openid: str) -> bool:
+    return bool(
+        openid in settings.admin_openids_set
+        or (
+            settings.WX_MOCK_LOGIN
+            and settings.WX_MOCK_ADMIN
+            and settings.APP_ENV.lower() == "development"
+        )
+    )
+
+
 @router.post("/login", response_model=LoginResponse)
 async def wx_login(data: LoginRequest, db: Session = Depends(get_db)):
     """
@@ -75,6 +86,9 @@ async def wx_login(data: LoginRequest, db: Session = Depends(get_db)):
             if not user:
                 raise HTTPException(500, "创建用户失败")
 
+    if _is_configured_admin(openid) and not user.is_admin:
+        user.is_admin = True
+
     user.last_login = datetime.utcnow()
     db.commit()
     db.refresh(user)
@@ -89,8 +103,15 @@ async def wx_login(data: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/me", response_model=UserOut)
-def get_me(current_user: User = Depends(get_current_user)):
+def get_me(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Validate the application session and return the current user."""
+    if _is_configured_admin(current_user.openid) and not current_user.is_admin:
+        current_user.is_admin = True
+        db.commit()
+        db.refresh(current_user)
     return UserOut.model_validate(current_user)
 
 

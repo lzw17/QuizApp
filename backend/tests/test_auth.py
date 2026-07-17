@@ -15,14 +15,17 @@ os.environ.update(
         "SECRET_KEY": "test-secret-key-with-at-least-32-characters",
         "WX_MOCK_LOGIN": "true",
         "WX_MOCK_OPENID": "auth-test-user",
+        "WX_MOCK_ADMIN": "false",
         "DEBUG": "false",
     }
 )
 
 from fastapi.testclient import TestClient
 
-from backend.app.database import engine
+from backend.app.database import SessionLocal, engine
 from backend.app.main import app
+from backend.app.models.question import GenerateTask, Question, QuestionBank
+from backend.app.models.user import AnswerRecord, User, UserProgress
 from backend.app.routers.auth import _get_wechat_session
 
 
@@ -43,6 +46,141 @@ class AuthFlowTest(unittest.TestCase):
         response = self.client.post("/api/auth/login", json={"code": "test-code"})
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
+
+    def create_bank(self, created_by="mock_auth-test-user"):
+        db = SessionLocal()
+        try:
+            bank = QuestionBank(
+                name=f"delete-test-{uuid.uuid4().hex[:8]}",
+                description="",
+                category="test",
+                total_count=1,
+                status="ready",
+                created_by=created_by,
+            )
+            db.add(bank)
+            db.flush()
+            question = Question(
+                bank_id=bank.id,
+                type="single",
+                content="test question",
+                options=[{"key": "A", "text": "answer"}],
+                answer="A",
+                order_index=1,
+            )
+            db.add(question)
+            db.commit()
+            return bank.id, question.id
+        finally:
+            db.close()
+
+    def test_bank_owner_can_soft_delete_bank(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        bank_id, question_id = self.create_bank()
+
+        db = SessionLocal()
+        try:
+            task_id = uuid.uuid4().hex
+            db.add(GenerateTask(
+                id=task_id,
+                bank_id=bank_id,
+                status="running",
+                message="generating",
+            ))
+            db.add(UserProgress(
+                user_id=session["user"]["id"],
+                bank_id=bank_id,
+                total_answered=1,
+                correct_count=1,
+                starred_ids=[question_id],
+            ))
+            db.add(AnswerRecord(
+                user_id=session["user"]["id"],
+                question_id=question_id,
+                bank_id=bank_id,
+                user_answer="A",
+                is_correct=True,
+            ))
+            db.commit()
+        finally:
+            db.close()
+
+        banks = self.client.get("/api/banks", headers=headers)
+        self.assertEqual(banks.status_code, 200, banks.text)
+        item = next(bank for bank in banks.json() if bank["id"] == bank_id)
+        self.assertTrue(item["can_delete"])
+
+        response = self.client.delete(f"/api/banks/{bank_id}", headers=headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["deleted_questions"], 1)
+        self.assertEqual(
+            self.client.get(f"/api/banks/{bank_id}", headers=headers).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get(f"/api/questions?bank_id={bank_id}", headers=headers).status_code,
+            404,
+        )
+
+        db = SessionLocal()
+        try:
+            self.assertEqual(db.get(QuestionBank, bank_id).status, "deleted")
+            self.assertEqual(db.get(Question, question_id).status, "deleted")
+            self.assertEqual(
+                db.query(AnswerRecord).filter(AnswerRecord.bank_id == bank_id).count(),
+                1,
+            )
+            self.assertEqual(
+                db.query(UserProgress).filter(UserProgress.bank_id == bank_id).count(),
+                1,
+            )
+            task = db.query(GenerateTask).filter(GenerateTask.bank_id == bank_id).one()
+            self.assertEqual(task.status, "failed")
+            self.assertEqual(task.message, "题库已删除，生成已停止")
+        finally:
+            db.close()
+
+    def test_non_owner_cannot_delete_bank(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        bank_id, _ = self.create_bank(created_by="another-user")
+
+        response = self.client.delete(f"/api/banks/{bank_id}", headers=headers)
+        self.assertEqual(response.status_code, 403, response.text)
+
+        db = SessionLocal()
+        try:
+            self.assertEqual(db.get(QuestionBank, bank_id).status, "ready")
+            db.get(QuestionBank, bank_id).status = "deleted"
+            db.commit()
+        finally:
+            db.close()
+
+    def test_admin_can_delete_another_users_bank(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        bank_id, _ = self.create_bank(created_by="another-user")
+
+        db = SessionLocal()
+        try:
+            user = db.get(User, session["user"]["id"])
+            user.is_admin = True
+            db.commit()
+        finally:
+            db.close()
+
+        try:
+            response = self.client.delete(f"/api/banks/{bank_id}", headers=headers)
+            self.assertEqual(response.status_code, 200, response.text)
+        finally:
+            db = SessionLocal()
+            try:
+                user = db.get(User, session["user"]["id"])
+                user.is_admin = False
+                db.commit()
+            finally:
+                db.close()
 
     def test_login_and_restore_session(self):
         session = self.login()
@@ -101,6 +239,7 @@ class AuthFlowTest(unittest.TestCase):
         self.assertEqual(captured["params"]["grant_type"], "authorization_code")
 
     def test_protected_routes_reject_missing_and_tampered_tokens(self):
+        self.assertEqual(self.client.get("/api/banks").status_code, 401)
         self.assertEqual(self.client.get("/api/stats").status_code, 401)
         self.assertEqual(
             self.client.post(

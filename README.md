@@ -94,6 +94,8 @@ python run.py
 | `SECRET_KEY` | 应用登录 token 签名密钥，生产需至少 32 位随机值 | — |
 | `AUTH_TOKEN_EXPIRE_DAYS` | 应用登录有效期（天） | 30 |
 | `WX_MOCK_LOGIN` | 本地固定身份模拟登录，仅允许 development | false |
+| `WX_MOCK_ADMIN` | mock 用户是否作为本地管理员 | false |
+| `ADMIN_OPENIDS` | 管理员 OpenID 列表，多个值用英文逗号分隔 | — |
 
 ## 微信登录流程
 
@@ -106,6 +108,8 @@ python run.py
 7. 用户主动退出会清除本机 token 并暂停自动登录，直到再次点击微信登录按钮。
 
 完整的能力边界、接口约定和上线检查见 [微信小程序登录方案](docs/wechat-login.md)。
+
+题库删除采用创建者/管理员权限和软删除策略，详细约定见 [题库删除方案](docs/bank-deletion.md)。
 
 本地联调若暂时没有可用的微信配置，可在 `.env` 设置
 `APP_ENV=development` 和 `WX_MOCK_LOGIN=true`。mock openid 是固定值，避免每次登录创建新用户；生产环境启动时会强制拒绝 mock 登录、空微信密钥或弱 `SECRET_KEY`。

@@ -12,7 +12,11 @@
       </view>
       <view class="bi-actions">
         <view class="action-btn edit-btn" bindtap="editBank" data-id="{{item.id}}" wx:if="{{item.status === 'ready'}}">编辑题目</view>
-        <view class="action-btn del-btn" bindtap="deleteBank" data-id="{{item.id}}">删除</view>
+        <view
+          class="action-btn del-btn {{deletingBankId === item.id ? 'loading' : ''}}"
+          bindtap="deleteBank"
+          data-id="{{item.id}}"
+        >{{deletingBankId === item.id ? '删除中' : '删除'}}</view>
       </view>
     </view>
   </view>

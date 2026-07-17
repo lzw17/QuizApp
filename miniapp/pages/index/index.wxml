@@ -66,7 +66,21 @@
           <text class="bank-category tag" wx:if="{{item.category}}">{{item.category}}</text>
         </view>
       </view>
-      <view class="bank-arrow">›</view>
+      <view class="bank-actions">
+        <view
+          wx:if="{{item.can_delete}}"
+          class="bank-delete-action {{deletingBankId === item.id ? 'loading' : ''}}"
+          catchtap="deleteBank"
+          data-id="{{item.id}}"
+          hover-class="bank-delete-hover"
+          hover-stay-time="100"
+          role="button"
+          aria-label="删除题库"
+        >
+          <image class="bank-delete-icon" src="/images/icon/trash-2.svg" mode="aspectFit" />
+        </view>
+        <view class="bank-arrow">›</view>
+      </view>
     </view>
 
     <!-- 空状态 -->

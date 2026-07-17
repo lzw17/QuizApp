@@ -15,6 +15,7 @@
 .action-btn { padding: 10rpx 20rpx; border-radius: 10rpx; font-size: 24rpx; }
 .edit-btn { background: #EEF2FF; color: #4F7EFF; }
 .del-btn  { background: #FFF1F1; color: #FF4D4F; }
+.del-btn.loading { opacity: 0.5; pointer-events: none; }
 
 /* 弹层 */
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 100; }

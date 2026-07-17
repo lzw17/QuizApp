@@ -23,6 +23,7 @@ class QuestionBankListItem(BaseModel):
     total_count: int
     status: str
     created_at: datetime
+    can_delete: bool = False
 
     class Config:
         from_attributes = True

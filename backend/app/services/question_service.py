@@ -18,6 +18,10 @@ from ..services.ai_engine import generate_questions_from_chunks, classify_questi
 logger = logging.getLogger(__name__)
 
 
+class GenerationCancelled(Exception):
+    pass
+
+
 # ──────────────────────────────────────────
 #  题库 CRUD
 # ──────────────────────────────────────────
@@ -96,7 +100,11 @@ def get_wrong_questions(db: Session, user_id: int, bank_id: Optional[int] = None
 
     results = []
     for record in unique[:100]:
-        q = db.query(Question).filter(Question.id == record.question_id).first()
+        q = db.query(Question).join(QuestionBank).filter(
+            Question.id == record.question_id,
+            Question.status == "active",
+            QuestionBank.status != BankStatus.deleted,
+        ).first()
         if q:
             results.append({
                 "record_id": record.id,
@@ -125,7 +133,11 @@ def get_starred_questions(db: Session, user_id: int, bank_id: int) -> List[Quest
     ).first()
     if not progress or not progress.starred_ids:
         return []
-    return db.query(Question).filter(Question.id.in_(progress.starred_ids)).all()
+    return db.query(Question).join(QuestionBank).filter(
+        Question.id.in_(progress.starred_ids),
+        Question.status == "active",
+        QuestionBank.status != BankStatus.deleted,
+    ).all()
 
 
 # ──────────────────────────────────────────
@@ -287,9 +299,18 @@ async def run_generate_task(
     """
     db: Session = db_factory()
     try:
+        def ensure_bank_active() -> None:
+            db.expire_all()
+            status = db.query(QuestionBank.status).filter(
+                QuestionBank.id == bank_id,
+            ).scalar()
+            if status is None or status in (BankStatus.deleted, BankStatus.deleted.value):
+                raise GenerationCancelled("题库已删除")
+
         task = db.query(GenerateTask).filter(GenerateTask.id == task_id).first()
         if not task:
             return
+        ensure_bank_active()
 
         task.status = TaskStatus.running
         task.message = "正在解析文档..."
@@ -297,6 +318,7 @@ async def run_generate_task(
 
         # 1. 解析文档
         text = await parse_document(file_path, source_type)
+        ensure_bank_active()
         if not text.strip():
             raise ValueError("文档内容为空，请检查文件")
 
@@ -308,6 +330,7 @@ async def run_generate_task(
 
         # 3. 进度回调
         async def on_progress(processed: int, total: int, generated: int, msg: str):
+            ensure_bank_active()
             t = db.query(GenerateTask).filter(GenerateTask.id == task_id).first()
             if t:
                 t.processed_chunks = processed
@@ -324,21 +347,32 @@ async def run_generate_task(
             num_direct=num_direct,
             num_logic=num_logic,
         )
+        ensure_bank_active()
 
         # 5. 补全标签
         task.message = "正在整理知识点标签..."
         db.commit()
         questions = await classify_questions_tags(questions)
+        ensure_bank_active()
 
         # 6. 批量写入数据库
         for i, q in enumerate(questions):
             q["order_index"] = i
             db.add(Question(**q))
 
-        bank = db.query(QuestionBank).filter(QuestionBank.id == bank_id).first()
-        if bank:
-            bank.total_count = len(questions)
-            bank.status = BankStatus.ready
+        db.flush()
+        updated = db.query(QuestionBank).filter(
+            QuestionBank.id == bank_id,
+            QuestionBank.status != BankStatus.deleted,
+        ).update(
+            {
+                QuestionBank.total_count: len(questions),
+                QuestionBank.status: BankStatus.ready,
+            },
+            synchronize_session=False,
+        )
+        if updated != 1:
+            raise GenerationCancelled("题库已删除")
 
         task.status = TaskStatus.done
         task.progress = 100
@@ -346,6 +380,14 @@ async def run_generate_task(
         task.message = f"出题完成！共生成 {len(questions)} 道题目"
         db.commit()
 
+    except GenerationCancelled:
+        db.rollback()
+        task = db.query(GenerateTask).filter(GenerateTask.id == task_id).first()
+        if task:
+            task.status = TaskStatus.failed
+            task.error = "bank deleted"
+            task.message = "题库已删除，生成已停止"
+            db.commit()
     except Exception as e:
         logger.error(f"出题任务 {task_id} 失败: {e}", exc_info=True)
         db.rollback()

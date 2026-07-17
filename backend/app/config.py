@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     WX_SECRET: str = ""
     WX_MOCK_LOGIN: bool = False
     WX_MOCK_OPENID: str = "local-dev-user"
+    WX_MOCK_ADMIN: bool = False
+    ADMIN_OPENIDS: str = ""
     AUTH_TOKEN_EXPIRE_DAYS: int = 30
 
     # MinerU 解析服务（可选）
@@ -51,6 +53,10 @@ class Settings(BaseSettings):
     @property
     def max_file_size_bytes(self) -> int:
         return self.MAX_FILE_SIZE_MB * 1024 * 1024
+
+    @property
+    def admin_openids_set(self) -> set[str]:
+        return {value.strip() for value in self.ADMIN_OPENIDS.split(",") if value.strip()}
 
     def validate_runtime_security(self) -> None:
         """Fail fast when production authentication is configured unsafely."""

@@ -15,6 +15,7 @@ class BankStatus(str, enum.Enum):
     pending = "pending"     # 生成中
     ready = "ready"         # 可用
     reviewing = "reviewing" # 审核中
+    deleted = "deleted"     # 已软删除
 
 
 class TaskStatus(str, enum.Enum):

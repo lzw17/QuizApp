@@ -6,6 +6,7 @@ Page({
     editingBankId: null,
     editQuestions: [],
     editForm: null,
+    deletingBankId: null,
     statusLabel: { pending: '生成中', ready: '已就绪', reviewing: '审核中' },
     typeLabel: { single: '单选', multi: '多选', judge: '判断' },
   },
@@ -79,12 +80,26 @@ Page({
   },
 
   async deleteBank(e) {
+    const id = Number(e.currentTarget.dataset.id);
+    const bank = this.data.banks.find(item => item.id === id);
+    if (!bank || this.data.deletingBankId) return;
     wx.showModal({
-      title: '确认删除题库', content: '将删除该题库及所有题目',
+      title: '删除题库',
+      content: `确定删除“${bank.name}”吗？题库和题目将不再显示，历史学习记录会保留。`,
+      confirmText: '删除',
+      confirmColor: '#E5484D',
       success: async (res) => {
         if (res.confirm) {
-          // 简化：直接刷新（后端可扩展删除接口）
-          wx.showToast({ title: '功能开发中', icon: 'none' });
+          this.setData({ deletingBankId: id });
+          try {
+            await request({ url: `/api/banks/${id}`, method: 'DELETE' });
+            if (this.data.editingBankId === id) this.closeModal();
+            this.setData({ banks: this.data.banks.filter(item => item.id !== id) });
+            wx.showToast({ title: '题库已删除', icon: 'success' });
+          } catch {
+          } finally {
+            this.setData({ deletingBankId: null });
+          }
         }
       },
     });

@@ -93,7 +93,29 @@
 .bank-desc { font-size: 24rpx; color: #999; margin-bottom: 12rpx; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bank-meta { display: flex; align-items: center; gap: 12rpx; }
 .bank-count { font-size: 24rpx; color: #4F7EFF; font-weight: 600; }
-.bank-arrow { font-size: 40rpx; color: #CCC; }
+.bank-actions {
+  width: 86rpx;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8rpx;
+  flex-shrink: 0;
+}
+.bank-delete-action {
+  width: 52rpx;
+  height: 52rpx;
+  box-sizing: border-box;
+  border: 1rpx solid #FFE0E0;
+  border-radius: 12rpx;
+  background: #FFF8F8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.bank-delete-hover { background: #FFECEC; border-color: #FFCACA; }
+.bank-delete-action.loading { opacity: 0.45; }
+.bank-delete-icon { width: 26rpx; height: 26rpx; }
+.bank-arrow { width: 20rpx; font-size: 36rpx; color: #C8CDD7; text-align: right; }
 
 /* 加载 */
 .load-more { display: flex; align-items: center; justify-content: center; padding: 30rpx; color: #999; font-size: 26rpx; gap: 12rpx; }
