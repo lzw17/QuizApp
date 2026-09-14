@@ -71,7 +71,7 @@ python run.py
 
 | 功能 | 说明 |
 |------|------|
-| 文档解析 | PDF（MinerU API / PyPDF 降级）、Word（python-docx）、URL（Jina Reader）|
+| 文档解析 | PDF（MinerU API / PyPDF 降级）、DOCX（python-docx）、URL（Jina Reader）|
 | AI 出题 | DeepSeek 双 Agent 并行生成直白题+逻辑题，Jaccard 去重 |
 | 顺序练习 | 按题序作答，记录断点，下次续做 |
 | 随机练习 | 随机抽题，碎片化学习 |
@@ -99,13 +99,13 @@ python run.py
 
 ## 微信登录流程
 
-1. 小程序启动时先使用本地 token 请求 `GET /api/auth/me`；无 token 或 token 失效时自动调用 `wx.login`。
+1. 小程序启动时先使用本地 token 请求 `GET /api/auth/me`；无有效 token 时停留在登录页，等待用户点击微信登录按钮。
 2. 小程序获取一次性临时 code，并发送到 `POST /api/auth/login`。
 3. 后端使用 `WX_APPID`、`WX_SECRET` 和 code 请求微信 `code2Session`，openid 和 session_key 不下发给小程序。
 4. 后端按 openid 查找或创建用户，并签发有过期时间的应用 Bearer token。
-5. 老用户直接进入首页；新用户使用微信头像选择和昵称填写组件完善资料。
-6. 受保护请求统一携带 `Authorization: Bearer <token>`；遇到 401 时自动重新登录并重试一次。
-7. 用户主动退出会清除本机 token 并暂停自动登录，直到再次点击微信登录按钮。
+5. 登录成功后所有用户直接进入首页；头像和昵称只在个人中心按需完善，不是登录前置条件。
+6. 受保护请求统一携带 `Authorization: Bearer <token>`；遇到 401 时清理会话并回到登录页，主动退出会让服务端立即撤销 token。
+7. 用户主动退出会清除本机 token，下一次进入登录页后再次点击微信登录按钮。
 
 完整的能力边界、接口约定和上线检查见 [微信小程序登录方案](docs/wechat-login.md)。
 

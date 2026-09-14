@@ -5,8 +5,10 @@ function request(options) {
 }
 
 function requireSession() {
-  return app.ensureLogin().then(user => {
+  return app.ensureLogin({ autoLogin: false }).then(user => {
     if (!user || !app.globalData.accessToken) {
+      wx.showToast({ title: '请先登录', icon: 'none' });
+      setTimeout(() => wx.reLaunch({ url: '/pages/login/login' }), 300);
       throw new Error('请先登录');
     }
     return user;
@@ -30,13 +32,9 @@ function _request(options, retried) {
           resolve(res.data);
         } else if (res.statusCode === 401 && token && !retried) {
           app.clearSession();
-          app.wxLogin({ force: true })
-            .then(() => _request(options, true))
-            .then(resolve)
-            .catch(error => {
-              wx.showToast({ title: error.message || '登录已失效，请重新登录', icon: 'none' });
-              reject(error);
-            });
+          wx.showToast({ title: '登录已失效，请重新登录', icon: 'none' });
+          setTimeout(() => wx.reLaunch({ url: '/pages/login/login' }), 300);
+          reject(new Error('登录已失效，请重新登录'));
         } else {
           const msg = (res.data && res.data.detail) || `请求失败 (${res.statusCode})`;
           wx.showToast({ title: msg, icon: 'none' });
@@ -54,7 +52,7 @@ function _request(options, retried) {
 function getUserId() {
   if (app.globalData.userId) return Promise.resolve(app.globalData.userId);
   if (typeof app.ensureLogin === 'function') {
-    return app.ensureLogin().then(user => user && user.id);
+    return app.ensureLogin({ autoLogin: false }).then(user => user && user.id);
   }
   return Promise.resolve(null);
 }
@@ -85,13 +83,9 @@ function _uploadFile(filePath, formData, options, retried) {
           resolve(data);
         } else if (res.statusCode === 401 && token && !retried) {
           app.clearSession();
-          app.wxLogin({ force: true })
-            .then(() => _uploadFile(filePath, formData, options, true))
-            .then(resolve)
-            .catch(error => {
-              wx.showToast({ title: error.message || '登录已失效，请重新登录', icon: 'none' });
-              reject(error);
-            });
+          wx.showToast({ title: '登录已失效，请重新登录', icon: 'none' });
+          setTimeout(() => wx.reLaunch({ url: '/pages/login/login' }), 300);
+          reject(new Error('登录已失效，请重新登录'));
         } else {
           const msg = (data && data.detail) || `上传失败 (${res.statusCode})`;
           wx.showToast({ title: msg, icon: 'none' });
@@ -111,9 +105,17 @@ function _uploadFile(filePath, formData, options, retried) {
 function pollTask(taskId, onProgress, onDone, onError) {
   let timer = null;
   let stopped = false;
+  const startedAt = Date.now();
+  const maxWaitMs = 10 * 60 * 1000;
+  let delay = 1500;
 
   function poll() {
     if (stopped) return;
+    if (Date.now() - startedAt >= maxWaitMs) {
+      stopped = true;
+      onError && onError('任务等待超时，请稍后在题库列表查看');
+      return;
+    }
     request({ url: `/api/task/${taskId}` }).then(data => {
       if (stopped) return;
       onProgress && onProgress(data);
@@ -124,11 +126,13 @@ function pollTask(taskId, onProgress, onDone, onError) {
         stopped = true;
         onError && onError(data.error || '生成失败');
       } else {
-        timer = setTimeout(poll, 1500);
+        delay = 1500;
+        timer = setTimeout(poll, delay);
       }
     }).catch(() => {
       if (!stopped) {
-        timer = setTimeout(poll, 3000);
+        delay = Math.min(delay * 2, 10000);
+        timer = setTimeout(poll, delay);
       }
     });
   }

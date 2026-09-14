@@ -7,7 +7,19 @@ Page({
   },
 
   onLoad(options) {
-    const result = JSON.parse(decodeURIComponent(options.data || '{}'));
+    let result = null;
+    try {
+      if (options.result_key) result = wx.getStorageSync(decodeURIComponent(options.result_key));
+      if (!result && options.data) result = JSON.parse(decodeURIComponent(options.data));
+    } catch (error) {
+      result = null;
+    }
+    if (options.result_key) wx.removeStorageSync(decodeURIComponent(options.result_key));
+    if (!result || typeof result !== 'object') {
+      wx.showToast({ title: '结果已失效，请重新考试', icon: 'none' });
+      setTimeout(() => wx.navigateBack({ delta: 1 }), 500);
+      return;
+    }
     const bankId = parseInt(options.bank_id);
 
     // 整理错题详情
@@ -26,7 +38,7 @@ Page({
     wx.setNavigationBarTitle({ title: result.passed ? '考试通过 ✓' : '考试结果' });
   },
 
-  goBack() { wx.navigateBack({ delta: 2 }); },
+  goBack() { wx.navigateBack({ delta: 1 }); },
 
   reviewWrong() {
     wx.navigateTo({

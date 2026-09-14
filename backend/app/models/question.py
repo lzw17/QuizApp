@@ -80,3 +80,16 @@ class GenerateTask(Base):
     error = Column(Text, default="", comment="错误信息")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class ExamSession(Base):
+    """服务端保存的考试实例，防止客户端任意拼接题目后提交。"""
+    __tablename__ = "exam_sessions"
+
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    bank_id = Column(Integer, ForeignKey("question_banks.id"), nullable=False, index=True)
+    question_ids = Column(JSON, nullable=False, default=list)
+    expires_at = Column(DateTime, nullable=False)
+    submitted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())

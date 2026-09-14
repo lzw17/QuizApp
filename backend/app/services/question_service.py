@@ -4,6 +4,7 @@
 import uuid
 import asyncio
 import logging
+import os
 from datetime import date, datetime, timedelta
 from typing import List, Optional
 from sqlalchemy.orm import Session
@@ -22,6 +23,29 @@ logger = logging.getLogger(__name__)
 
 class GenerationCancelled(Exception):
     pass
+
+
+def evaluate_answer(question: Question, raw_answer: str) -> tuple[str, bool]:
+    """Normalize and validate one answer without writing any database records."""
+    allowed_keys = {str(item.get("key", "")).strip().upper() for item in (question.options or [])}
+    correct_answer = "".join(str(question.answer or "").split()).upper()
+    user_answer = "".join(str(raw_answer or "").split()).upper()
+    if not allowed_keys or not correct_answer:
+        raise ValueError("题目选项或标准答案无效")
+    if any(key not in allowed_keys for key in user_answer):
+        raise ValueError("答案包含无效选项")
+    if len(set(user_answer)) != len(user_answer):
+        raise ValueError("答案不能包含重复选项")
+    if question.type in ("single", "judge") and len(user_answer) != 1:
+        raise ValueError("单选题和判断题只能选择一个答案")
+    if question.type == "multi" and not user_answer:
+        raise ValueError("多选题至少选择一个答案")
+    is_correct = (
+        user_answer == correct_answer
+        if question.type in ("single", "judge")
+        else set(user_answer) == set(correct_answer)
+    )
+    return user_answer, is_correct
 
 
 def _get_or_create_progress(db: Session, user_id: int, bank_id: int) -> UserProgress:
@@ -180,17 +204,14 @@ def submit_answer(db: Session, data: AnswerSubmit, user_id: int) -> AnswerResult
     if not question:
         raise ValueError("题目不存在或不属于该题库")
 
-    # 判断对错（多选题需要答案集合相同）
-    correct_set = set(question.answer.upper())
-    user_set = set(data.user_answer.upper())
-    is_correct = correct_set == user_set
+    user_answer, is_correct = evaluate_answer(question, data.user_answer)
 
     # 写入答题记录
     record = AnswerRecord(
         user_id=user_id,
         question_id=data.question_id,
         bank_id=data.bank_id,
-        user_answer=data.user_answer,
+        user_answer=user_answer,
         is_correct=is_correct,
         time_spent=data.time_spent,
         mode=data.mode,
@@ -330,6 +351,12 @@ def recover_stale_tasks(db: Session, stale_minutes: int = 60) -> int:
         task.status = TaskStatus.failed
         task.message = "任务因服务重启或超时已终止"
         task.error = f"stale task recovered after {stale_minutes} minutes"
+        bank = db.query(QuestionBank).filter(QuestionBank.id == task.bank_id).first()
+        if bank and bank.source_type != "url" and bank.source_file and os.path.isfile(bank.source_file):
+            try:
+                os.remove(bank.source_file)
+            except OSError:
+                logger.warning("无法清理过期任务源文件 %s", bank.source_file, exc_info=True)
     if tasks:
         db.commit()
     return len(tasks)
@@ -454,3 +481,8 @@ async def run_generate_task(
             db.commit()
     finally:
         db.close()
+        if source_type != "url" and file_path and os.path.isfile(file_path):
+            try:
+                os.remove(file_path)
+            except OSError:
+                logger.warning("无法清理源文件 %s", file_path, exc_info=True)

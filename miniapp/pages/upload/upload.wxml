@@ -49,8 +49,8 @@
     <view wx:if="{{sourceType === 'file'}}">
       <view class="upload-zone" bindtap="chooseFile" wx:if="{{!selectedFile}}">
         <image class="upload-icon-img" src="/images/icon/upload.svg" />
-        <text class="upload-tip">点击选择 PDF 或 Word 文件</text>
-        <text class="upload-sub">支持 .pdf / .doc / .docx，最大 50MB</text>
+        <text class="upload-tip">点击选择 PDF 或 DOCX 文件</text>
+        <text class="upload-sub">支持 .pdf / .docx，最大 50MB</text>
       </view>
       <view class="file-selected" wx:else>
         <text class="file-icon">📄</text>

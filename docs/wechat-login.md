@@ -4,7 +4,7 @@
 
 本项目采用微信身份与应用登录态分离的方案：小程序通过 `wx.login` 获取一次性 `code`，后端调用微信 `code2Session` 换取身份，再由后端签发本项目自己的 Bearer token。`WX_SECRET`、`openid` 和 `session_key` 都不会下发或写入小程序缓存。
 
-应用启动时会先校验已有 token；没有 token 或 token 已失效时，自动执行一次微信静默登录。用户主动退出后会关闭自动登录，直到再次点击“微信一键登录”。
+应用启动时只校验已有 token；没有 token 时展示登录页，用户点击“微信一键登录”后才调用 `wx.login`。登录成功后直接进入首页，头像和昵称不再作为登录前置条件。用户主动退出后会清除本机 token，下一次仍需点击登录按钮。
 
 ## 可自动取得的信息
 
@@ -23,12 +23,12 @@
 
 1. 小程序启动，读取本地 `accessToken` 和用户缓存。
 2. 有 token 时请求 `GET /api/auth/me`；校验成功后直接进入应用。
-3. 无 token 或服务端返回 401 时，小程序自动调用 `wx.login`。
-4. 小程序把 code 发送给 `POST /api/auth/login`，不发送 AppSecret。
+3. 无 token 或 token 失效时停留在登录页，等待用户点击“微信一键登录”。
+4. 用户点击后调用 `wx.login`，把一次性 code 发送给 `POST /api/auth/login`，不发送 AppSecret。
 5. 后端携带 `WX_APPID`、`WX_SECRET` 和 code 请求微信 `code2Session`。
 6. 后端按 `openid` 查找或创建用户，更新最后登录时间并签发应用 token。
-7. 老用户直接进入首页；新用户进入资料完善页，可选择微信头像并填写微信昵称，也可以跳过。
-8. 后续接口统一携带 `Authorization: Bearer <token>`；遇到 401 时自动重新登录并只重试一次原请求。
+7. 登录成功后直接进入首页；头像和昵称仅在个人中心通过 `chooseAvatar` 和 `type="nickname"` 按需完善。
+8. 后续接口统一携带 `Authorization: Bearer <token>`；遇到 401 时清理本地会话并回到登录页，必须由用户再次点击登录。主动退出还会调用服务端撤销接口，使旧 token 立即失效。
 
 ## 接口约定
 

@@ -9,6 +9,7 @@ PUT  /api/questions/{id}     编辑题目（管理员）
 DELETE /api/questions/{id}   删除题目（管理员）
 GET  /api/banks/{id}/tags    获取题库知识点标签列表
 """
+import os
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -18,7 +19,7 @@ from ..auth import get_current_user, require_admin
 from ..database import get_db
 from ..models.question import GenerateTask, QuestionBank, Question, BankStatus, TaskStatus
 from ..models.user import AnswerRecord, User, UserProgress
-from ..schemas.question import QuestionBankListItem, QuestionBankOut, QuestionOut, QuestionCreate
+from ..schemas.question import QuestionBankListItem, QuestionBankOut, QuestionOut, QuestionPublicOut, QuestionCreate
 
 router = APIRouter(prefix="/api", tags=["questions"])
 
@@ -147,6 +148,11 @@ def delete_bank(
 
     bank.status = BankStatus.deleted
     db.commit()
+    if bank.source_type != "url" and bank.source_file and os.path.isfile(bank.source_file):
+        try:
+            os.remove(bank.source_file)
+        except OSError:
+            pass
     return {
         "message": "题库已删除",
         "bank_id": bank_id,
@@ -154,7 +160,7 @@ def delete_bank(
     }
 
 
-@router.get("/questions", response_model=List[QuestionOut])
+@router.get("/questions", response_model=List[QuestionPublicOut])
 def get_questions(
     bank_id: int = Query(...),
     mode: str = Query("sequential", description="sequential/random/wrong/starred"),
@@ -216,7 +222,60 @@ def get_questions(
     return query.offset(skip).limit(limit).all()
 
 
-@router.get("/questions/{question_id}", response_model=QuestionOut)
+@router.get("/questions/count")
+def count_questions(
+    bank_id: int = Query(...),
+    mode: str = Query("sequential"),
+    tag: Optional[str] = None,
+    difficulty: Optional[int] = Query(None, ge=1, le=5),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """返回当前筛选条件下的题目总数，供前端分页加载使用。"""
+    _get_visible_bank(db, bank_id, current_user)
+    query = db.query(Question).filter(
+        Question.bank_id == bank_id,
+        Question.status == "active",
+    )
+    if mode == "wrong":
+        ids = [row[0] for row in db.query(AnswerRecord.question_id).filter(
+            AnswerRecord.user_id == current_user.id,
+            AnswerRecord.bank_id == bank_id,
+            AnswerRecord.is_correct == False,
+        ).distinct().all()]
+        query = query.filter(Question.id.in_(ids)) if ids else query.filter(Question.id == -1)
+    elif mode == "starred":
+        progress = db.query(UserProgress).filter(
+            UserProgress.user_id == current_user.id,
+            UserProgress.bank_id == bank_id,
+        ).first()
+        ids = list(progress.starred_ids or []) if progress else []
+        query = query.filter(Question.id.in_(ids)) if ids else query.filter(Question.id == -1)
+    elif mode not in ("sequential", "random"):
+        raise HTTPException(400, "不支持的题目模式")
+    if tag:
+        query = query.filter(Question.tags.contains(f'"{tag}"'))
+    if difficulty:
+        query = query.filter(Question.difficulty == difficulty)
+    return {"total": query.count()}
+
+
+@router.get("/admin/questions", response_model=List[QuestionOut])
+def list_admin_questions(
+    bank_id: int = Query(...),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    _admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """管理员编辑题目时使用，标准答案只对管理员返回。"""
+    return db.query(Question).filter(
+        Question.bank_id == bank_id,
+        Question.status == "active",
+    ).order_by(Question.order_index).offset(skip).limit(limit).all()
+
+
+@router.get("/questions/{question_id}", response_model=QuestionPublicOut)
 def get_question(
     question_id: int,
     current_user: User = Depends(get_current_user),

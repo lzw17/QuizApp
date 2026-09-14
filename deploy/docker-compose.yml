@@ -1,0 +1,68 @@
+# 部署编排：MySQL + Redis + FastAPI 后端 + Nginx
+#
+# 使用步骤：
+#   1. cp .env.example .env            然后修改两个数据库密码
+#   2. cp ../backend/.env.production.example ../backend/.env  并填写完整
+#   3. docker compose up -d --build
+#   4. 验证：curl http://127.0.0.1/health  （走 Nginx）
+#      或 docker compose exec backend curl -s http://127.0.0.1:8000/health
+#
+# 备案期间：保持 80/443 端口不对外提供站点内容（见 nginx/quizapp.conf 顶部说明），
+#           联调可临时放开下方 backend 的 ports 映射，用 http://服务器IP:8000 访问。
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: quizapp
+      MYSQL_USER: quizapp
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+  backend:
+    build: ../backend
+    restart: unless-stopped
+    env_file: ../backend/.env
+    volumes:
+      - ../uploads:/app/uploads
+    # 备案期间临时联调时放开下面两行，备案通过后删掉（后端不应直接暴露公网）
+    # ports:
+    #   - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/quizapp.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
+  redis_data:

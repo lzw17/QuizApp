@@ -12,7 +12,9 @@ Page({
     currentIndex: 0,
     currentQ: null,
     userAnswers: [],    // 索引对应题目，值为选择的答案字符串
+    sessionId: '',
     answeredCount: 0,
+    submitting: false,
     timeLeft: 1800,     // 秒
     showSheet: false,
     typeLabel: { single: '单选', multi: '多选', judge: '判断' },
@@ -38,12 +40,17 @@ Page({
   async startExam() {
     wx.showLoading({ title: '出题中...' });
     try {
-      const list = await request({
-        url: `/api/questions?bank_id=${this.data.bankId}&mode=random&limit=${this.data.examCount}`,
+      const exam = await request({
+        url: '/api/exam/start',
+        method: 'POST',
+        data: { bank_id: this.data.bankId, question_count: this.data.examCount },
       });
+      const list = exam.questions || [];
+      if (!list.length) throw new Error('题库暂无可用题目');
       const minutes = Math.max(10, Math.ceil(list.length * 1.5));
       this.setData({
         questions: list,
+        sessionId: exam.session_id,
         userAnswers: new Array(list.length).fill(''),
         currentIndex: 0,
         currentQ: list[0] || null,
@@ -119,6 +126,7 @@ Page({
 
   // ─── 交卷 ───
   confirmSubmit() {
+    if (this.data.submitting) return;
     const unanswered = this.data.questions.length - this.data.answeredCount;
     wx.showModal({
       title: '确认交卷',
@@ -129,7 +137,9 @@ Page({
   },
 
   async _doSubmit() {
+    if (this.data.submitting || !this.data.sessionId) return;
     this._clearTimer();
+    this.setData({ submitting: true });
     wx.showLoading({ title: '评分中...' });
     try {
       const uid = await getUserId();
@@ -146,18 +156,21 @@ Page({
         url: '/api/exam/submit',
         method: 'POST',
         data: {
+          session_id: this.data.sessionId,
           bank_id: this.data.bankId,
           answers,
           total_time: this.data.examMinutes * 60 - this.data.timeLeft,
         },
       });
-      // 跳转结果页
-      const resultStr = encodeURIComponent(JSON.stringify(result));
+      // 结果写入本地缓存，避免长题干/解析超过小程序页面参数长度限制。
+      const resultKey = `exam-result-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      wx.setStorageSync(resultKey, result);
       wx.redirectTo({
-        url: `/pages/result/result?data=${resultStr}&bank_id=${this.data.bankId}&bank_name=${encodeURIComponent(this.data.bankName)}`,
+        url: `/pages/result/result?result_key=${encodeURIComponent(resultKey)}&bank_id=${this.data.bankId}&bank_name=${encodeURIComponent(this.data.bankName)}`,
       });
     } catch {
     } finally {
+      this.setData({ submitting: false });
       wx.hideLoading();
     }
   },

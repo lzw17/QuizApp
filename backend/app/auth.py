@@ -27,7 +27,7 @@ def _b64decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
 
 
-def create_access_token(user_id: int) -> tuple[str, int]:
+def create_access_token(user_id: int, token_version: int = 0) -> tuple[str, int]:
     """Create a compact HS256 token without exposing WeChat credentials."""
     now = int(time.time())
     expires_in = settings.AUTH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
@@ -38,6 +38,7 @@ def create_access_token(user_id: int) -> tuple[str, int]:
         "exp": now + expires_in,
         "iss": settings.APP_NAME,
         "type": "access",
+        "ver": int(token_version),
     }
     encoded_header = _b64encode(json.dumps(header, separators=(",", ":")).encode())
     encoded_payload = _b64encode(json.dumps(payload, separators=(",", ":")).encode())
@@ -48,7 +49,7 @@ def create_access_token(user_id: int) -> tuple[str, int]:
     return f"{encoded_header}.{encoded_payload}.{_b64encode(signature)}", expires_in
 
 
-def _decode_access_token(token: str) -> int:
+def _decode_access_token(token: str) -> tuple[int, int]:
     try:
         encoded_header, encoded_payload, encoded_signature = token.split(".")
         signing_input = f"{encoded_header}.{encoded_payload}".encode("ascii")
@@ -66,7 +67,7 @@ def _decode_access_token(token: str) -> int:
             raise ValueError("invalid issuer")
         if int(payload["exp"]) <= int(time.time()):
             raise ValueError("expired token")
-        return int(payload["sub"])
+        return int(payload["sub"]), int(payload.get("ver", 0))
     except (
         AttributeError,
         binascii.Error,
@@ -94,12 +95,18 @@ def get_current_user(
             detail="请先登录",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    user_id = _decode_access_token(credentials.credentials)
+    user_id, token_version = _decode_access_token(credentials.credentials)
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户不存在，请重新登录",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if user.token_version != token_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="登录状态已失效，请重新登录",
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user

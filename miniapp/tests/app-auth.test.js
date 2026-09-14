@@ -20,7 +20,13 @@ function loadApp({ initialStorage = {}, handleRequest } = {}) {
     },
     request(options) {
       calls.requests.push(options);
-      queueMicrotask(() => handleRequest(options));
+      queueMicrotask(() => {
+        if (options.url.endsWith('/api/auth/logout')) {
+          options.complete && options.complete({ statusCode: 200 });
+          return;
+        }
+        handleRequest(options);
+      });
     },
     reLaunch(options) {
       calls.relaunches.push(options.url);
@@ -41,7 +47,7 @@ function loadApp({ initialStorage = {}, handleRequest } = {}) {
   return { app, calls, storage };
 }
 
-async function testFirstLaunchAutomaticallyLogsIn() {
+async function testFirstLaunchWaitsForOneTapLogin() {
   let requestOptions;
   const fixture = loadApp({
     handleRequest(options) {
@@ -58,7 +64,13 @@ async function testFirstLaunchAutomaticallyLogsIn() {
   });
 
   fixture.app.onLaunch();
-  const user = await fixture.app.globalData.sessionRestorePromise;
+  const restoredUser = await fixture.app.globalData.sessionRestorePromise;
+
+  assert.equal(restoredUser, null);
+  assert.equal(fixture.calls.login, 0);
+  assert.equal(fixture.calls.requests.length, 0);
+
+  const user = await fixture.app.wxLogin();
 
   assert.equal(user.id, 7);
   assert.equal(fixture.calls.login, 1);
@@ -66,7 +78,7 @@ async function testFirstLaunchAutomaticallyLogsIn() {
   assert.equal(requestOptions.data.code, 'wx-one-time-code');
   assert.equal(fixture.app.globalData.accessToken, 'app-token');
   assert.equal(fixture.app.globalData.isNewUser, true);
-  assert.equal(fixture.app.globalData.profileRequired, true);
+  assert.equal(fixture.app.globalData.profileRequired, false);
   assert.equal(fixture.storage.get('accessToken'), 'app-token');
 }
 
@@ -94,7 +106,7 @@ async function testCachedSessionIsVerifiedWithoutWxLogin() {
   assert.equal(fixture.calls.requests[0].header.Authorization, 'Bearer cached-token');
 }
 
-async function testExpiredCachedSessionAutomaticallyLogsInAgain() {
+async function testExpiredCachedSessionWaitsForOneTapLogin() {
   const fixture = loadApp({
     initialStorage: {
       userInfo: { id: 3, nickname: '旧昵称', avatar: '' },
@@ -117,7 +129,13 @@ async function testExpiredCachedSessionAutomaticallyLogsInAgain() {
   });
 
   fixture.app.onLaunch();
-  const user = await fixture.app.globalData.sessionRestorePromise;
+  const restoredUser = await fixture.app.globalData.sessionRestorePromise;
+
+  assert.equal(restoredUser, null);
+  assert.equal(fixture.calls.login, 0);
+  assert.equal(fixture.calls.requests.length, 1);
+
+  const user = await fixture.app.wxLogin();
 
   assert.equal(user.nickname, '新会话');
   assert.equal(fixture.calls.login, 1);
@@ -141,13 +159,14 @@ async function testLogoutRequiresManualLogin() {
   const user = await fixture.app.globalData.sessionRestorePromise;
   assert.equal(user, null);
   assert.equal(fixture.calls.login, 0);
-  assert.equal(fixture.calls.requests.length, 0);
+  assert.equal(fixture.calls.requests.length, 1);
+  assert.equal(fixture.calls.requests[0].url, 'https://api.quizapp.chat/api/auth/logout');
 }
 
 (async () => {
-  await testFirstLaunchAutomaticallyLogsIn();
+  await testFirstLaunchWaitsForOneTapLogin();
   await testCachedSessionIsVerifiedWithoutWxLogin();
-  await testExpiredCachedSessionAutomaticallyLogsInAgain();
+  await testExpiredCachedSessionWaitsForOneTapLogin();
   await testLogoutRequiresManualLogin();
   console.log('miniapp auth tests passed');
 })().catch(error => {

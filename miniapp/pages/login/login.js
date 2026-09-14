@@ -6,6 +6,8 @@ Page({
     stage: 'login',   // 'login' | 'setup'
     avatarUrl: '',
     nickname: '',
+    avatarSupported: false,
+    nicknameSupported: false,
     submitting: false,
     logging: false,
     userId: null,
@@ -14,54 +16,58 @@ Page({
 
   async onLoad(options) {
     const isEdit = options.edit === '1';
-    this.setData({ isEdit, logging: !isEdit });
+    this.setData({ isEdit, logging: false });
     let user = null;
     try {
-      user = await app.ensureLogin({ autoLogin: !isEdit });
+      user = await app.ensureLogin({ autoLogin: false });
     } catch {}
-    this.setData({ logging: false });
 
     if (isEdit) {
       if (!user) {
         wx.reLaunch({ url: '/pages/login/login' });
         return;
       }
+      const canUse = typeof wx.canIUse === 'function';
       this.setData({
         stage: 'setup',
         userId: user.id,
         avatarUrl: user.avatar || '',
         nickname: user.nickname || '',
+        avatarSupported: canUse && wx.canIUse('button.open-type.chooseAvatar'),
+        nicknameSupported: canUse && wx.canIUse('input.type.nickname'),
       });
       return;
     }
 
-    if (user) this._continueAfterLogin(user);
+    if (user) this._continueAfterLogin();
   },
 
   async onWxLogin() {
     if (this.data.logging) return;
     this.setData({ logging: true });
     try {
+      if (typeof wx.requirePrivacyAuthorize === 'function') {
+        await new Promise((resolve, reject) => {
+          wx.requirePrivacyAuthorize({
+            success: resolve,
+            fail: error => reject(new Error(
+              error && error.errMsg && error.errMsg.includes('cancel')
+                ? '你已取消隐私授权'
+                : '请先完成隐私授权',
+            )),
+          });
+        });
+      }
       const user = await app.wxLogin();
       if (!user) throw new Error('登录失败');
-      this._continueAfterLogin(user);
+      this._continueAfterLogin();
     } catch (error) {
       this.setData({ logging: false });
       wx.showToast({ title: error.message || '登录失败，请重试', icon: 'none' });
     }
   },
 
-  _continueAfterLogin(user) {
-    if (app.globalData.isNewUser || app.globalData.profileRequired) {
-      this.setData({
-        stage: 'setup',
-        logging: false,
-        userId: user.id,
-        avatarUrl: user.avatar || '',
-        nickname: '',
-      });
-      return;
-    }
+  _continueAfterLogin() {
     wx.reLaunch({ url: '/pages/index/index' });
   },
 
@@ -88,7 +94,6 @@ Page({
         finalAvatar = await this._uploadAvatar(avatarUrl);
       }
       await this._updateProfile(nickname.trim(), finalAvatar);
-      wx.removeStorageSync(`profileSetupSkipped:${app.globalData.userId}`);
       app.globalData.isNewUser = false;
       app.globalData.profileRequired = false;
       wx.showToast({ title: isEdit ? '修改成功' : '设置成功', icon: 'success' });
@@ -98,13 +103,6 @@ Page({
     } catch {
       this.setData({ submitting: false });
     }
-  },
-
-  onSkip() {
-    wx.setStorageSync(`profileSetupSkipped:${app.globalData.userId}`, true);
-    app.globalData.isNewUser = false;
-    app.globalData.profileRequired = false;
-    wx.reLaunch({ url: '/pages/index/index' });
   },
 
   async _uploadAvatar(filePath) {

@@ -1,7 +1,8 @@
 # Production deployment
 
-This project expects the backend to run behind Nginx on an HTTPS domain. Replace
-`api.example.com` and every `<...>` placeholder before using these files.
+This project expects the backend to run behind Nginx on an HTTPS domain. The
+production example domain is `api.quizapp.chat`; verify DNS, certificate and
+WeChat legal domains before release, and replace every `<...>` placeholder.
 
 ## Backend
 
@@ -19,19 +20,20 @@ WX_MOCK_LOGIN=false
 WX_MOCK_ADMIN=false
 ADMIN_OPENIDS=<comma-separated openids>
 DATABASE_URL=mysql+pymysql://quizapp:<password>@127.0.0.1:3306/quiz_app
-PUBLIC_BASE_URL=https://api.example.com
+PUBLIC_BASE_URL=https://api.quizapp.chat
 UPLOAD_DIR=/var/lib/quizapp/uploads
-ALLOWED_ORIGINS=https://api.example.com
+ALLOWED_ORIGINS=https://api.quizapp.chat
 DEEPSEEK_API_KEY=<deepseek key>
 ```
 
 4. Install dependencies in `/opt/quizapp/backend/.venv`. Back up the database,
    inspect duplicate `(user_id, bank_id)` rows, and apply
-   `backend/migrations/001_user_progress_unique_mysql.sql` before starting the
+   `backend/migrations/001_user_progress_unique_mysql.sql` and
+   `backend/migrations/002_user_token_version_mysql.sql` before starting the
    service. `create_all()` creates missing tables but does not alter existing
    production tables.
-5. Install `quizapp.service.example` as a systemd unit and start it.
-6. Install `nginx.conf.example`, issue an HTTPS certificate, and reload Nginx.
+5. Install `quizapp.service` as a systemd unit and start it.
+6. Install `nginx/quizapp.conf`, issue an HTTPS certificate, and reload Nginx.
 
 The current worker uses FastAPI `BackgroundTasks`, so run one Uvicorn worker until
 AI generation is moved to a durable Redis/Celery/RQ worker. Do not use `run.py`
@@ -39,15 +41,15 @@ with production reload enabled.
 
 ## WeChat platform
 
-In the Mini Program console, add `https://api.example.com` to request and
+In the Mini Program console, add `https://api.quizapp.chat` to request and
 uploadFile legal domains. Use the same HTTPS origin in `miniapp/app.js`, build
 the `miniapp/` directory, test the experience version, then submit for review.
 
 ## Smoke checks
 
 ```bash
-curl --fail https://api.example.com/health
-curl --fail -I https://api.example.com/uploads/avatars/known-avatar.png
+curl --fail https://api.quizapp.chat/health
+curl --fail -I https://api.quizapp.chat/uploads/avatars/known-avatar.png
 ```
 
 The source-document directory must not be exposed by Nginx. Only the avatar

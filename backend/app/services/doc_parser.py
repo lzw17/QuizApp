@@ -1,6 +1,6 @@
 """
 文档解析服务
-支持：PDF（优先 MinerU API，降级 PyPDF）、Word（python-docx）、URL（Jina Reader）
+支持：PDF（优先 MinerU API，降级 PyPDF）、DOCX（python-docx）、URL（Jina Reader）
 """
 import os
 import httpx
@@ -147,12 +147,13 @@ async def parse_url(url: str) -> str:
     无需 API Key，直接访问
     """
     jina_url = f"https://r.jina.ai/{url}"
-    async with httpx.AsyncClient(timeout=30) as client:
+    # URL 已在路由层做 DNS 内网地址校验；这里不跟随第三方重定向，避免绕过校验。
+    async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
         headers = {
             "Accept": "text/plain",
             "X-Return-Format": "markdown",
         }
-        async with client.stream("GET", jina_url, headers=headers, follow_redirects=True) as resp:
+        async with client.stream("GET", jina_url, headers=headers) as resp:
             resp.raise_for_status()
             content = bytearray()
             async for chunk in resp.aiter_bytes():

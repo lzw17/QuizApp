@@ -11,6 +11,8 @@ Page({
     question: null,
     total: 0,
     selectedAnswer: '',
+    correctAnswer: '',
+    explanation: '',
     answered: false,
     isCorrect: false,
     correctRate: 0,
@@ -25,6 +27,9 @@ Page({
     modeLabel: '',
     typeLabel: { single: '单选', multi: '多选', judge: '判断' },
     userAnswers: {},
+    answerSubmitting: false,
+    hasMore: false,
+    loadingMore: false,
   },
 
   _startTime: 0,
@@ -44,11 +49,13 @@ Page({
     this._loadProgress();
   },
 
-  async _loadQuestions(skip = 0) {
-    this.setData({ loading: true, startSkip: skip });
+  async _loadQuestions(skip = 0, append = false) {
+    if (append && this.data.loadingMore) return;
+    this.setData(append ? { loadingMore: true } : { loading: true, startSkip: skip });
     try {
       const mode = this.data.mode === 'tag' ? 'sequential' : this.data.mode;
-      let query = `bank_id=${this.data.bankId}&mode=${mode}&skip=${skip}&limit=50`;
+      let query = `bank_id=${this.data.bankId}&mode=${mode}&skip=${skip}&limit=100`;
+      let countQuery = `bank_id=${this.data.bankId}&mode=${mode}`;
       if (mode === 'wrong' || mode === 'starred') {
         const uid = await getUserId();
         if (!uid) {
@@ -57,20 +64,30 @@ Page({
           return;
         }
       }
-      if (this.data.tag) query += `&tag=${encodeURIComponent(this.data.tag)}`;
-      const list = await request({ url: `/api/questions?${query}` });
+      if (this.data.tag) {
+        query += `&tag=${encodeURIComponent(this.data.tag)}`;
+        countQuery += `&tag=${encodeURIComponent(this.data.tag)}`;
+      }
+      const [list, countInfo] = await Promise.all([
+        request({ url: `/api/questions?${query}` }),
+        append ? Promise.resolve({ total: this.data.total }) : request({ url: `/api/questions/count?${countQuery}` }),
+      ]);
+      const questions = append ? this.data.questions.concat(list) : list;
+      const total = Number(countInfo.total || questions.length);
       this.setData({
-        questions: list,
-        total: list.length,
+        questions,
+        total,
+        hasMore: questions.length < total && list.length > 0,
         loading: false,
+        loadingMore: false,
       });
-      if (list.length > 0) {
-        this._showQuestion(0);
+      if (questions.length > 0) {
+        if (!append) this._showQuestion(0);
       } else {
         this.setData({ done: true, loading: false });
       }
     } catch {
-      this.setData({ loading: false });
+      this.setData({ loading: false, loadingMore: false });
     }
   },
 
@@ -88,10 +105,10 @@ Page({
   },
 
   _saveCurrentState() {
-    const { question, selectedAnswer, answered, isCorrect, correctRate, userAnswers } = this.data;
+    const { question, selectedAnswer, answered, isCorrect, correctRate, correctAnswer, explanation, userAnswers } = this.data;
     if (!question) return;
     const updated = Object.assign({}, userAnswers);
-    updated[question.id] = { selectedAnswer, answered, isCorrect, correctRate };
+    updated[question.id] = { selectedAnswer, answered, isCorrect, correctRate, correctAnswer, explanation };
     this.setData({ userAnswers: updated });
   },
 
@@ -104,6 +121,8 @@ Page({
       currentIndex: index,
       question: q,
       selectedAnswer: saved ? saved.selectedAnswer : '',
+      correctAnswer: saved ? saved.correctAnswer || '' : '',
+      explanation: saved ? saved.explanation || '' : '',
       answered: saved ? saved.answered : false,
       isCorrect: saved ? saved.isCorrect : false,
       correctRate: saved ? saved.correctRate : 0,
@@ -135,7 +154,7 @@ Page({
 
   async confirmAnswer() {
     const { question, selectedAnswer, bankId, sessionTotal, sessionCorrect } = this.data;
-    if (!selectedAnswer) return;
+    if (!selectedAnswer || this.data.answerSubmitting) return;
     const uid = await getUserId();
     if (!uid) {
       wx.showToast({ title: '登录失败，请重试', icon: 'none' });
@@ -143,6 +162,7 @@ Page({
     }
     const timeSpent = Math.round((Date.now() - this._startTime) / 1000);
 
+    this.setData({ answerSubmitting: true });
     try {
       const result = await request({
         url: '/api/answer',
@@ -158,6 +178,8 @@ Page({
       this.setData({
         answered: true,
         isCorrect: result.is_correct,
+        correctAnswer: result.correct_answer || '',
+        explanation: result.explanation || '',
         correctRate: result.correct_rate,
         sessionTotal: sessionTotal + 1,
         sessionCorrect: sessionCorrect + (result.is_correct ? 1 : 0),
@@ -170,14 +192,22 @@ Page({
           data: { bank_id: bankId, position: this.data.startSkip + this.data.currentIndex + 1 },
         }).catch(() => {});
       }
-    } catch {}
+    } catch {} finally {
+      this.setData({ answerSubmitting: false });
+    }
   },
 
-  nextQuestion() {
+  async nextQuestion() {
     this._saveCurrentState();
     const next = this.data.currentIndex + 1;
     if (next >= this.data.questions.length) {
-      this.setData({ done: true });
+      if (this.data.hasMore) {
+        await this._loadQuestions(this.data.questions.length, true);
+        if (this.data.questions.length > next) this._showQuestion(next);
+        else this.setData({ done: true });
+      } else {
+        this.setData({ done: true });
+      }
     } else {
       this._showQuestion(next);
     }
@@ -210,7 +240,7 @@ Page({
   getOptionClass(key) {
     const { answered, selectedAnswer, question } = this.data;
     if (!answered) return selectedAnswer === key ? 'selected' : '';
-    const correct = question.answer.toUpperCase();
+    const correct = (this.data.correctAnswer || '').toUpperCase();
     const isCorrectKey = correct.includes(key);
     const isSelected = selectedAnswer.toUpperCase().includes(key);
     if (isCorrectKey) return 'correct';
@@ -219,11 +249,11 @@ Page({
   },
 
   isCorrectOption(key) {
-    return this.data.question?.answer?.toUpperCase().includes(key) || false;
+    return (this.data.correctAnswer || '').toUpperCase().includes(key) || false;
   },
 
   restart() {
-    this.setData({ done: false, sessionTotal: 0, sessionCorrect: 0, userAnswers: {} });
+    this.setData({ done: false, sessionTotal: 0, sessionCorrect: 0, userAnswers: {}, correctAnswer: '', explanation: '' });
     this._loadQuestions(0);
   },
 

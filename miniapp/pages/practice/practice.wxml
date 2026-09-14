@@ -40,14 +40,14 @@
     <view class="options">
       <view
         wx:for="{{question.options}}" wx:key="key"
-        class="option {{fmt.getOptionClass(item.key, answered, selectedAnswer, question.answer)}}"
+        class="option {{fmt.getOptionClass(item.key, answered, selectedAnswer, correctAnswer)}}"
         bindtap="selectOption"
         data-key="{{item.key}}"
       >
         <view class="option-key">{{item.key}}</view>
         <view class="option-text">{{item.text}}</view>
         <view class="option-icon" wx:if="{{answered}}">
-          <text wx:if="{{fmt.isCorrectOption(item.key, question.answer)}}">✓</text>
+          <text wx:if="{{fmt.isCorrectOption(item.key, correctAnswer)}}">✓</text>
           <text wx:elif="{{item.key === selectedAnswer}}">✗</text>
         </view>
       </view>
@@ -62,7 +62,7 @@
         <text class="exp-rate">正确率 {{fmt.toFixed0(correctRate * 100)}}%</text>
       </view>
       <view class="exp-content">
-        <text class="exp-label">【解析】</text>{{question.explanation || '暂无解析'}}
+        <text class="exp-label">【解析】</text>{{explanation || '暂无解析'}}
       </view>
     </view>
   </view>
@@ -74,8 +74,8 @@
       wx:if="{{!answered}}"
       class="btn-primary confirm-btn"
       bindtap="confirmAnswer"
-      disabled="{{!selectedAnswer}}"
-    >确认答案</button>
+      disabled="{{!selectedAnswer || answerSubmitting}}"
+    >{{answerSubmitting ? '提交中...' : '确认答案'}}</button>
     <button
       wx:else
       class="btn-primary next-btn"

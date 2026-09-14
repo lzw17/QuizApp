@@ -29,7 +29,7 @@ Page({
     wx.chooseMessageFile({
       count: 1,
       type: 'file',
-      extension: ['pdf', 'doc', 'docx'],
+      extension: ['pdf', 'docx'],
       success: (res) => {
         const file = res.tempFiles[0];
         const sizeMB = (file.size / 1024 / 1024).toFixed(1);
@@ -39,7 +39,7 @@ Page({
             name: file.name,
             size: `${sizeMB} MB`,
           },
-          bankName: this.data.bankName || file.name.replace(/\.(pdf|doc|docx)$/i, ''),
+            bankName: this.data.bankName || file.name.replace(/\.(pdf|docx)$/i, ''),
         });
       },
     });

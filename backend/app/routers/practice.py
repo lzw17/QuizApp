@@ -8,19 +8,24 @@ POST /api/progress            更新顺序练习断点
 GET  /api/progress/{bank_id}  获取用户在该题库的进度
 GET  /api/stats               获取个人学习统计
 """
+import uuid
+from datetime import datetime, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func as sa_func
 from pydantic import BaseModel, Field
 
 from ..database import get_db
 from ..auth import get_current_user
-from ..models.question import Question, QuestionBank, BankStatus
+from ..models.question import Question, QuestionBank, BankStatus, ExamSession
 from ..models.user import User, UserProgress
 from ..schemas.user import AnswerSubmit, AnswerResult, UserStatsOut, UserProgressOut
+from ..schemas.question import QuestionPublicOut
 from ..services.question_service import (
     submit_answer, toggle_star, update_progress_position,
     get_wrong_questions, get_user_stats,
+    evaluate_answer,
 )
 
 router = APIRouter(prefix="/api", tags=["practice"])
@@ -54,9 +59,22 @@ class ExamAnswerItem(BaseModel):
 
 
 class ExamSubmitRequest(BaseModel):
+    session_id: str = Field(min_length=1, max_length=64)
     bank_id: int
     answers: List[ExamAnswerItem] = Field(min_length=1, max_length=100)
-    total_time: int = 0  # 总用时（秒）
+    total_time: int = Field(default=0, ge=0, le=86400)  # 总用时（秒）
+
+
+class ExamStartRequest(BaseModel):
+    bank_id: int
+    question_count: int = Field(default=20, ge=1, le=100)
+
+
+class ExamStartResult(BaseModel):
+    session_id: str
+    bank_id: int
+    expires_at: datetime
+    questions: List[QuestionPublicOut]
 
 
 class ExamResultItem(BaseModel):
@@ -84,7 +102,42 @@ def submit_exam(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """模拟考试批量交卷判分"""
+    """校验服务端考试实例后批量交卷判分。"""
+    session = db.query(ExamSession).filter(
+        ExamSession.id == data.session_id,
+        ExamSession.user_id == current_user.id,
+        ExamSession.bank_id == data.bank_id,
+    ).first()
+    if not session:
+        raise HTTPException(400, "考试实例不存在或不属于当前用户")
+    if session.submitted_at:
+        raise HTTPException(409, "该考试已经提交")
+    if session.expires_at < datetime.utcnow():
+        raise HTTPException(400, "考试已超时，请重新开始")
+
+    expected_ids = [int(item) for item in (session.question_ids or [])]
+    received_ids = [item.question_id for item in data.answers]
+    if len(received_ids) != len(expected_ids) or len(set(received_ids)) != len(received_ids):
+        raise HTTPException(400, "必须提交本次考试的全部题目且不能重复")
+    if set(received_ids) != set(expected_ids):
+        raise HTTPException(400, "提交的题目不属于本次考试")
+
+    questions = db.query(Question).filter(
+        Question.id.in_(expected_ids),
+        Question.bank_id == data.bank_id,
+        Question.status == "active",
+    ).all()
+    by_id = {question.id: question for question in questions}
+    if len(by_id) != len(expected_ids):
+        raise HTTPException(400, "考试题目已失效，请重新开始")
+    # 先完整校验答案，避免部分写入后才发现非法答案。
+    normalized_answers = {}
+    for item in data.answers:
+        try:
+            normalized_answers[item.question_id] = evaluate_answer(by_id[item.question_id], item.user_answer)[0]
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
     results = []
     correct_count = 0
 
@@ -92,7 +145,7 @@ def submit_exam(
         submit = AnswerSubmit(
             question_id=item.question_id,
             bank_id=data.bank_id,
-            user_answer=item.user_answer,
+            user_answer=normalized_answers[item.question_id],
             time_spent=item.time_spent,
             mode="exam",
         )
@@ -105,13 +158,16 @@ def submit_exam(
                 content=question.content if question else "",
                 is_correct=result.is_correct,
                 correct_answer=result.correct_answer,
-                user_answer=item.user_answer,
+                user_answer=normalized_answers[item.question_id],
                 explanation=result.explanation,
             ))
             if result.is_correct:
                 correct_count += 1
-        except ValueError:
-            continue
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    session.submitted_at = datetime.utcnow()
+    db.commit()
 
     total = len(results)
     score = round(correct_count / total * 100, 1) if total > 0 else 0.0
@@ -123,6 +179,44 @@ def submit_exam(
         score=score,
         passed=score >= 60.0,
         results=results,
+    )
+
+
+@router.post("/exam/start", response_model=ExamStartResult)
+def start_exam(
+    data: ExamStartRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """创建服务端考试实例并返回不含答案的题目。"""
+    bank = db.query(QuestionBank).filter(
+        QuestionBank.id == data.bank_id,
+        QuestionBank.status == BankStatus.ready,
+    ).first()
+    if not bank:
+        raise HTTPException(404, "题库不存在")
+    questions = db.query(Question).filter(
+        Question.bank_id == data.bank_id,
+        Question.status == "active",
+    ).order_by(sa_func.random()).limit(data.question_count).all()
+    if not questions:
+        raise HTTPException(400, "题库暂无可用题目")
+    session_id = uuid.uuid4().hex
+    expires_at = datetime.utcnow() + timedelta(minutes=max(10, int(len(questions) * 1.5) + 5))
+    session = ExamSession(
+        id=session_id,
+        user_id=current_user.id,
+        bank_id=data.bank_id,
+        question_ids=[question.id for question in questions],
+        expires_at=expires_at,
+    )
+    db.add(session)
+    db.commit()
+    return ExamStartResult(
+        session_id=session_id,
+        bank_id=data.bank_id,
+        expires_at=expires_at,
+        questions=questions,
     )
 
 
@@ -138,6 +232,44 @@ def list_wrong_questions(
 ):
     """获取用户错题列表（每题只显示最近一次答错）"""
     return get_wrong_questions(db, current_user.id, bank_id)
+
+
+@router.get("/starred-questions")
+def list_starred_questions(
+    bank_id: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """只返回当前用户已收藏题目的复习数据（包含答案和解析）。"""
+    query = db.query(UserProgress)
+    if bank_id:
+        query = query.filter(UserProgress.bank_id == bank_id)
+    progress_list = query.filter(UserProgress.user_id == current_user.id).all()
+    result = []
+    for progress in progress_list:
+        if not progress.starred_ids:
+            continue
+        questions = db.query(Question).filter(
+            Question.id.in_(progress.starred_ids),
+            Question.bank_id == progress.bank_id,
+            Question.status == "active",
+        ).all()
+        by_id = {question.id: question for question in questions}
+        for question_id in progress.starred_ids:
+            question = by_id.get(question_id)
+            if question:
+                result.append({
+                    "id": question.id,
+                    "bank_id": question.bank_id,
+                    "type": question.type,
+                    "content": question.content,
+                    "options": question.options,
+                    "answer": question.answer,
+                    "explanation": question.explanation,
+                    "tags": question.tags,
+                    "difficulty": question.difficulty,
+                })
+    return result
 
 
 # ──────────────────────────────────────────

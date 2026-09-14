@@ -25,7 +25,7 @@ Page({
     const id = e.currentTarget.dataset.id;
     this.setData({ editingBankId: id });
     try {
-      const list = await request({ url: `/api/questions?bank_id=${id}&limit=100` });
+      const list = await request({ url: `/api/admin/questions?bank_id=${id}&limit=100` });
       this.setData({ editQuestions: list });
     } catch {}
   },

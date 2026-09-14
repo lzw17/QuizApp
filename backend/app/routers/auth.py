@@ -91,7 +91,7 @@ async def wx_login(data: LoginRequest, db: Session = Depends(get_db)):
     user.last_login = datetime.utcnow()
     db.commit()
     db.refresh(user)
-    access_token, expires_in = create_access_token(user.id)
+    access_token, expires_in = create_access_token(user.id, user.token_version or 0)
 
     return LoginResponse(
         user=UserOut.model_validate(user),
@@ -113,6 +113,17 @@ def get_me(
         db.commit()
         db.refresh(current_user)
     return UserOut.model_validate(current_user)
+
+
+@router.post("/logout")
+def logout(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """递增服务端 token 版本，使已签发的登录态立即失效。"""
+    current_user.token_version = (current_user.token_version or 0) + 1
+    db.commit()
+    return {"message": "已退出登录"}
 
 
 @router.post("/avatar")

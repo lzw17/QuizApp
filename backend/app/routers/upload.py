@@ -8,6 +8,7 @@ GET  /api/task/{id}/sse SSE 实时推送进度
 import os
 import uuid
 import asyncio
+import socket
 from urllib.parse import urlparse
 import ipaddress
 import aiofiles
@@ -27,7 +28,7 @@ from ..config import settings
 
 router = APIRouter(prefix="/api", tags=["upload"])
 
-ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx"}
+ALLOWED_EXTENSIONS = {".pdf", ".docx"}
 
 
 class UrlUploadRequest(BaseModel):
@@ -46,16 +47,20 @@ def _validate_source_url(value: str) -> str:
         hostname = parsed.hostname
     except ValueError:
         raise HTTPException(400, "请输入有效的 HTTP/HTTPS URL")
-    if parsed.scheme not in ("http", "https") or not hostname:
+    if parsed.scheme not in ("http", "https") or not hostname or parsed.username or parsed.password:
         raise HTTPException(400, "请输入有效的 HTTP/HTTPS URL")
     hostname = hostname.rstrip(".").lower()
     if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith(".local"):
         raise HTTPException(400, "不允许访问本地地址")
+    addresses = set()
     try:
-        address = ipaddress.ip_address(hostname)
-    except ValueError:
-        address = None
-    if address and (address.is_private or address.is_loopback or address.is_link_local or address.is_reserved):
+        addresses.update(
+            ipaddress.ip_address(info[4][0])
+            for info in socket.getaddrinfo(hostname, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+        )
+    except (OSError, ValueError):
+        raise HTTPException(400, "无法解析目标地址")
+    if any(address.is_private or address.is_loopback or address.is_link_local or address.is_reserved for address in addresses):
         raise HTTPException(400, "不允许访问内网地址")
     return url
 
@@ -84,7 +89,7 @@ def _get_source_type(filename: str) -> str:
     ext = os.path.splitext(filename)[1].lower()
     if ext == ".pdf":
         return "pdf"
-    elif ext in (".doc", ".docx"):
+    elif ext == ".docx":
         return "word"
     return "unknown"
 
@@ -101,10 +106,10 @@ async def upload_file(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """上传 PDF/Word 文档，异步生成题库"""
+    """上传 PDF/DOCX 文档，异步生成题库"""
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(400, f"不支持的文件类型，仅支持: {', '.join(ALLOWED_EXTENSIONS)}")
+        raise HTTPException(400, "不支持的文件类型，仅支持: .pdf, .docx")
 
     source_type = _get_source_type(file.filename or "")
 
@@ -218,6 +223,7 @@ async def task_sse(
     _get_owned_task(db, task_id, current_user)
 
     async def event_generator():
+        deadline = asyncio.get_running_loop().time() + max(60, settings.TASK_STALE_MINUTES * 60)
         while True:
             poll_db = SessionLocal()
             try:
@@ -240,6 +246,9 @@ async def task_sse(
             if task.status in ("done", "failed"):
                 break
 
+            if asyncio.get_running_loop().time() >= deadline:
+                yield f"data: {json.dumps({'error': '任务状态查询超时'})}\n\n"
+                break
             await asyncio.sleep(1.5)
 
     return StreamingResponse(

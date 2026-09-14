@@ -98,6 +98,22 @@ class QuestionOut(BaseModel):
         from_attributes = True
 
 
+class QuestionPublicOut(BaseModel):
+    """题库、练习和考试开始接口使用的公开题目模型，不包含标准答案。"""
+    id: int
+    bank_id: int
+    type: str
+    content: str
+    options: List[Any]
+    tags: List[Any]
+    difficulty: int
+    correct_rate: float
+    order_index: int
+
+    class Config:
+        from_attributes = True
+
+
 class GenerateTaskOut(BaseModel):
     id: str
     bank_id: Optional[int] = None

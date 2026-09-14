@@ -1,4 +1,5 @@
 from sqlalchemy import create_engine
+from sqlalchemy import inspect, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from .config import settings
@@ -32,3 +33,11 @@ def create_tables():
     """初始化建表（开发用，生产建议用 Alembic 迁移）"""
     from .models import question, user  # noqa: F401 触发模型注册
     Base.metadata.create_all(bind=engine)
+    # 开发环境常直接复用旧 SQLite 文件，补齐新增的 token 撤销字段。
+    if settings.DATABASE_URL.startswith("sqlite"):
+        columns = {column["name"] for column in inspect(engine).get_columns("users")}
+        if "token_version" not in columns:
+            with engine.begin() as connection:
+                connection.execute(text(
+                    "ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"
+                ))

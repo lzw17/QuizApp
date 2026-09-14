@@ -311,10 +311,81 @@ class AuthFlowTest(unittest.TestCase):
         )
         self.assertEqual(star.status_code, 400, star.text)
 
+    def test_public_questions_hide_answers_and_duplicate_answers_are_rejected(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        bank_id, question_id = self.create_bank()
+
+        response = self.client.get(
+            f"/api/questions?bank_id={bank_id}&limit=10", headers=headers
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertNotIn("answer", response.json()[0])
+
+        duplicate = self.client.post(
+            "/api/answer",
+            headers=headers,
+            json={
+                "bank_id": bank_id,
+                "question_id": question_id,
+                "user_answer": "AA",
+            },
+        )
+        self.assertEqual(duplicate.status_code, 400, duplicate.text)
+
+    def test_exam_session_requires_complete_unique_submission(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        bank_id, question_id = self.create_bank()
+
+        started = self.client.post(
+            "/api/exam/start",
+            headers=headers,
+            json={"bank_id": bank_id, "question_count": 1},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        payload = started.json()
+        self.assertEqual(len(payload["questions"]), 1)
+        self.assertNotIn("answer", payload["questions"][0])
+
+        incomplete = self.client.post(
+            "/api/exam/submit",
+            headers=headers,
+            json={"session_id": payload["session_id"], "bank_id": bank_id, "answers": []},
+        )
+        self.assertEqual(incomplete.status_code, 422)
+
+        submitted = self.client.post(
+            "/api/exam/submit",
+            headers=headers,
+            json={
+                "session_id": payload["session_id"],
+                "bank_id": bank_id,
+                "answers": [{"question_id": question_id, "user_answer": "A"}],
+            },
+        )
+        self.assertEqual(submitted.status_code, 200, submitted.text)
+        again = self.client.post(
+            "/api/exam/submit",
+            headers=headers,
+            json={
+                "session_id": payload["session_id"],
+                "bank_id": bank_id,
+                "answers": [{"question_id": question_id, "user_answer": "A"}],
+            },
+        )
+        self.assertEqual(again.status_code, 409, again.text)
+
     def test_bank_tags_require_authentication(self):
         bank_id, _ = self.create_bank()
         response = self.client.get(f"/api/banks/{bank_id}/tags")
         self.assertEqual(response.status_code, 401)
+
+    def test_logout_revokes_existing_token(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        self.assertEqual(self.client.post("/api/auth/logout", headers=headers).status_code, 200)
+        self.assertEqual(self.client.get("/api/auth/me", headers=headers).status_code, 401)
 
     def test_admin_configuration_can_be_revoked(self):
         session = self.login()

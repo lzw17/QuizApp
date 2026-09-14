@@ -8,11 +8,23 @@ App({
     sessionVersion: 0,
     isNewUser: false,
     profileRequired: false,
-    baseUrl: 'https://api.example.com', // 发布前替换为已备案并配置到微信平台的 HTTPS 域名
+    baseUrl: 'https://api.quizapp.chat', // 生产域名；需在微信后台配置 request/uploadFile 合法域名
     devLanUrl: 'http://192.168.71.4:8000', // 局域网真机调试用
   },
 
   onLaunch() {
+    if (typeof wx.onNeedPrivacyAuthorization === 'function') {
+      wx.onNeedPrivacyAuthorization(resolve => {
+        wx.showModal({
+          title: '隐私保护提示',
+          content: '登录需要使用微信账号标识，用于创建账号并同步你的学习记录。',
+          confirmText: '同意并继续',
+          cancelText: '暂不登录',
+          success: result => resolve({ event: result.confirm ? 'agree' : 'disagree' }),
+          fail: () => resolve({ event: 'disagree' }),
+        });
+      });
+    }
     const platform = wx.getSystemInfoSync().platform;
     const accountInfo = wx.getAccountInfoSync ? wx.getAccountInfoSync() : {};
     const envVersion = (accountInfo.miniProgram && accountInfo.miniProgram.envVersion) || 'develop';
@@ -45,17 +57,7 @@ App({
   },
 
   async _initializeSession() {
-    const restoredUser = await this._restoreSession();
-    if (restoredUser || wx.getStorageSync('manualLoginRequired')) {
-      return restoredUser;
-    }
-
-    try {
-      return await this._startWxLogin(false);
-    } catch {
-      // 启动时静默登录失败应保留登录页，由用户点击按钮重试。
-      return null;
-    }
+    return this._restoreSession();
   },
 
   _restoreSession() {
@@ -161,12 +163,10 @@ App({
   },
 
   _setSession(user, token) {
-    const nickname = (user.nickname || '').trim();
-    const setupSkipped = wx.getStorageSync(`profileSetupSkipped:${user.id}`);
     this.globalData.userInfo = user;
     this.globalData.userId = user.id;
     this.globalData.accessToken = token;
-    this.globalData.profileRequired = (!nickname || nickname === '微信用户') && !setupSkipped;
+    this.globalData.profileRequired = false;
     wx.setStorageSync('userInfo', user);
     wx.setStorageSync('accessToken', token);
   },
@@ -183,6 +183,15 @@ App({
   },
 
   logout() {
+    const token = this.globalData.accessToken;
+    if (token) {
+      wx.request({
+        url: `${this.globalData.baseUrl}/api/auth/logout`,
+        method: 'POST',
+        header: { Authorization: `Bearer ${token}` },
+        complete: () => {},
+      });
+    }
     this.clearSession();
     wx.setStorageSync('manualLoginRequired', true);
     wx.reLaunch({ url: '/pages/login/login' });

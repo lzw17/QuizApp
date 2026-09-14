@@ -62,22 +62,11 @@ Page({
   async _loadStars() {
     const uid = await getUserId();
     if (!uid) return;
-    const { banks } = this.data;
-    const starQuestions = [];
-    for (const bank of banks) {
-      try {
-        const p = await request({ url: `/api/progress/${bank.id}` });
-        if (p.starred_ids && p.starred_ids.length > 0) {
-          for (const qid of p.starred_ids) {
-            try {
-              const q = await request({ url: `/api/questions/${qid}` });
-              starQuestions.push({ ...q, bank_id: bank.id });
-            } catch {}
-          }
-        }
-      } catch {}
-    }
-    this.setData({ starList: starQuestions });
+    try {
+      const bankQuery = this.data.filterBankId ? `?bank_id=${this.data.filterBankId}` : '';
+      const starList = await request({ url: `/api/starred-questions${bankQuery}` });
+      this.setData({ starList });
+    } catch {}
   },
 
   async _loadBanks() {

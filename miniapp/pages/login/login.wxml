@@ -1,29 +1,46 @@
 <view class="page">
-  <!-- 顶部渐变区（两个阶段共用） -->
   <view class="hero">
-    <view class="logo-wrap">
-      <image class="logo-img" src="/images/page/book.png" mode="aspectFit" />
+    <view class="hero-topline">
+      <text class="hero-kicker">QUIZAPP / AI STUDY</text>
+      <text class="hero-status">轻量 · 专注 · 可追踪</text>
     </view>
-    <text class="app-name">智题宝</text>
-    <text class="app-desc">AI 智能出题，让学习更高效</text>
+
+    <view class="brand">
+      <view class="logo-wrap">
+        <image class="logo-img" src="/images/page/book.png" mode="aspectFit" />
+      </view>
+      <view class="brand-copy">
+        <text class="app-name">智题宝</text>
+        <text class="app-desc">让资料、练习与错题各就各位</text>
+      </view>
+    </view>
+
+    <text class="hero-note">从今天的第一道题开始，建立自己的学习节奏。</text>
   </view>
 
-  <!-- ===== 阶段一：微信登录 ===== -->
-  <view class="card" wx:if="{{stage === 'login'}}">
-    <text class="card-title">欢迎使用智题宝</text>
+  <view class="sheet" wx:if="{{stage === 'login'}}">
+    <view class="sheet-handle"></view>
+    <view class="section-heading">
+      <text class="section-eyebrow">WELCOME BACK</text>
+      <text class="card-title">登录后继续学习</text>
+      <text class="section-desc">微信登录后，学习记录会自动同步。</text>
+    </view>
 
-    <view class="feature-list">
+    <view class="feature-grid">
       <view class="feature-item">
-        <text class="feature-icon">📚</text>
-        <text class="feature-text">上传资料，AI 自动生成题库</text>
+        <text class="feature-index">01</text>
+        <text class="feature-title">资料转题</text>
+        <text class="feature-meta">快速整理</text>
       </view>
       <view class="feature-item">
-        <text class="feature-icon">✍️</text>
-        <text class="feature-text">练习模式 &amp; 考试模式</text>
+        <text class="feature-index">02</text>
+        <text class="feature-title">随时练习</text>
+        <text class="feature-meta">多种模式</text>
       </view>
       <view class="feature-item">
-        <text class="feature-icon">📊</text>
-        <text class="feature-text">错题本与答题数据统计</text>
+        <text class="feature-index">03</text>
+        <text class="feature-title">复盘进步</text>
+        <text class="feature-meta">数据沉淀</text>
       </view>
     </view>
 
@@ -31,45 +48,59 @@
       class="btn-wx-login {{logging ? 'loading' : ''}}"
       bindtap="onWxLogin"
       disabled="{{logging}}"
+      hover-class="btn-wx-login-hover"
     >
       <view class="wx-btn-inner">
-        <text class="wx-dot">●</text>
-        <text>{{logging ? '登录中...' : '微信一键登录'}}</text>
+        <view class="wx-mark"><text>微</text></view>
+        <text>{{logging ? '正在登录' : '微信一键登录'}}</text>
       </view>
     </button>
 
-    <text class="privacy-tip">登录仅用于识别账号并同步学习记录</text>
+    <text class="privacy-tip">仅用于识别账号和同步学习记录</text>
   </view>
 
-  <!-- ===== 阶段二：完善资料 ===== -->
-  <view class="card" wx:elif="{{stage === 'setup'}}">
-    <text class="card-title">{{isEdit ? '编辑资料' : '完善个人资料'}}</text>
+  <view class="sheet" wx:elif="{{stage === 'setup'}}">
+    <view class="sheet-handle"></view>
+    <view class="section-heading">
+      <text class="section-eyebrow">YOUR PROFILE</text>
+      <text class="card-title">编辑个人资料</text>
+      <text class="section-desc">头像和昵称不会影响登录，可按需修改。</text>
+    </view>
 
     <view class="avatar-row">
       <view class="avatar-container">
         <button
+          wx:if="{{avatarSupported}}"
           class="avatar-btn"
           open-type="chooseAvatar"
           bindchooseavatar="onChooseAvatar"
+          hover-class="avatar-btn-hover"
         >
           <image wx:if="{{avatarUrl}}" class="avatar-img" src="{{avatarUrl}}" mode="aspectFill" />
           <view wx:else class="avatar-empty">
-            <text class="camera-emoji">📷</text>
+            <text class="avatar-plus">+</text>
+            <text class="avatar-empty-label">添加头像</text>
           </view>
         </button>
-        <view class="avatar-badge">
-          <text class="badge-icon">+</text>
+        <view wx:else class="avatar-fallback">
+          <image wx:if="{{avatarUrl}}" class="avatar-img" src="{{avatarUrl}}" mode="aspectFill" />
+          <view wx:else class="avatar-empty">
+            <text class="avatar-plus">+</text>
+            <text class="avatar-empty-label">添加头像</text>
+          </view>
         </view>
+        <view wx:if="{{avatarSupported}}" class="avatar-badge"><text class="badge-icon">+</text></view>
       </view>
-      <text class="avatar-label">👆 点击头像，选择你的微信头像</text>
+      <text class="avatar-label">{{avatarSupported ? '点击头像添加微信头像' : '当前微信版本暂不支持更换头像'}}</text>
+      <text class="avatar-sub">也可以稍后在个人中心修改</text>
     </view>
 
     <view class="field">
       <text class="field-label">昵称</text>
       <input
         class="field-input"
-        type="nickname"
-        placeholder="点击输入框，键盘顶部可一键填入微信昵称"
+        type="{{nicknameSupported ? 'nickname' : 'text'}}"
+        placeholder="输入昵称（最多20字）"
         placeholder-class="field-placeholder"
         value="{{nickname}}"
         bindinput="onNicknameInput"
@@ -77,15 +108,14 @@
         maxlength="20"
         confirm-type="done"
       />
-      <text class="field-hint">💡 真机预览时可一键填入微信昵称，模拟器请手动输入</text>
+      <text class="field-hint">真机可从键盘顶部选择微信昵称，模拟器请直接输入。</text>
     </view>
 
     <button
       class="btn-submit {{submitting ? 'loading' : ''}}"
       bindtap="onSubmit"
       disabled="{{submitting}}"
-    >{{submitting ? '保存中...' : (isEdit ? '保存修改' : '进入智题宝')}}</button>
-
-    <text wx:if="{{!isEdit}}" class="skip" bindtap="onSkip">跳过，稍后设置 ›</text>
+      hover-class="btn-submit-hover"
+    >{{submitting ? '正在保存' : '保存修改'}}</button>
   </view>
 </view>
