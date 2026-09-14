@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 
@@ -16,9 +16,9 @@ class UserOut(BaseModel):
 class AnswerSubmit(BaseModel):
     question_id: int
     bank_id: int
-    user_answer: str
-    time_spent: int = 0
-    mode: str = "practice"
+    user_answer: str = Field(default="", max_length=20)
+    time_spent: int = Field(default=0, ge=0, le=86400)
+    mode: str = Field(default="practice", max_length=20)
 
 
 class AnswerResult(BaseModel):

@@ -4,6 +4,7 @@ import tempfile
 import time
 import unittest
 import uuid
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 
@@ -27,6 +28,8 @@ from backend.app.main import app
 from backend.app.models.question import GenerateTask, Question, QuestionBank
 from backend.app.models.user import AnswerRecord, User, UserProgress
 from backend.app.routers.auth import _get_wechat_session
+from backend.app.schemas.question import QuestionCreate
+from backend.app.services.question_service import get_user_stats, recover_stale_tasks
 
 
 class AuthFlowTest(unittest.TestCase):
@@ -283,6 +286,150 @@ class AuthFlowTest(unittest.TestCase):
             headers={"Authorization": f"Bearer {session['access_token']}"},
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_practice_payload_cannot_cross_question_banks(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        bank_id, question_id = self.create_bank()
+        other_bank_id, _ = self.create_bank()
+
+        answer = self.client.post(
+            "/api/answer",
+            headers=headers,
+            json={
+                "bank_id": other_bank_id,
+                "question_id": question_id,
+                "user_answer": "A",
+            },
+        )
+        self.assertEqual(answer.status_code, 400, answer.text)
+
+        star = self.client.post(
+            "/api/star",
+            headers=headers,
+            json={"bank_id": other_bank_id, "question_id": question_id},
+        )
+        self.assertEqual(star.status_code, 400, star.text)
+
+    def test_bank_tags_require_authentication(self):
+        bank_id, _ = self.create_bank()
+        response = self.client.get(f"/api/banks/{bank_id}/tags")
+        self.assertEqual(response.status_code, 401)
+
+    def test_admin_configuration_can_be_revoked(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        with patch("backend.app.routers.auth.settings.ADMIN_OPENIDS", "mock_auth-test-user"):
+            self.assertTrue(self.client.get("/api/auth/me", headers=headers).json()["is_admin"])
+        with patch("backend.app.routers.auth.settings.ADMIN_OPENIDS", ""):
+            self.assertFalse(self.client.get("/api/auth/me", headers=headers).json()["is_admin"])
+
+    def test_pending_bank_is_hidden_from_regular_users(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        db = SessionLocal()
+        try:
+            bank = QuestionBank(name="pending", status="pending", created_by="another-user")
+            db.add(bank)
+            db.flush()
+            question = Question(
+                bank_id=bank.id,
+                type="single",
+                content="pending question",
+                options=[{"key": "A", "text": "answer"}],
+                answer="A",
+            )
+            db.add(question)
+            db.commit()
+            bank_id, question_id = bank.id, question.id
+        finally:
+            db.close()
+
+        self.assertEqual(self.client.get(f"/api/banks/{bank_id}", headers=headers).status_code, 404)
+        self.assertEqual(self.client.get(f"/api/banks/{bank_id}/tags", headers=headers).status_code, 404)
+        self.assertEqual(
+            self.client.get(f"/api/questions?bank_id={bank_id}", headers=headers).status_code,
+            404,
+        )
+        self.assertEqual(self.client.get(f"/api/questions/{question_id}", headers=headers).status_code, 404)
+        self.assertEqual(
+            self.client.post(
+                "/api/answer",
+                headers=headers,
+                json={"bank_id": bank_id, "question_id": question_id, "user_answer": "A"},
+            ).status_code,
+            400,
+        )
+        self.assertEqual(
+            self.client.post(
+                "/api/progress",
+                headers=headers,
+                json={"bank_id": bank_id, "position": 0},
+            ).status_code,
+            400,
+        )
+
+    def test_question_create_validates_answer_and_type(self):
+        with self.assertRaises(ValueError):
+            QuestionCreate(
+                bank_id=1,
+                type="unsupported",
+                content="question",
+                options=[{"key": "A", "text": "answer"}],
+                answer="A",
+            )
+        with self.assertRaises(ValueError):
+            QuestionCreate(
+                bank_id=1,
+                type="single",
+                content="question",
+                options=[{"key": "A", "text": "answer"}],
+                answer="B",
+            )
+
+    def test_stats_streak_and_stale_task_recovery(self):
+        db = SessionLocal()
+        try:
+            user = User(openid=f"stats-{uuid.uuid4().hex}")
+            db.add(user)
+            db.flush()
+            now = datetime.utcnow()
+            db.add_all([
+                AnswerRecord(
+                    user_id=user.id,
+                    question_id=1,
+                    bank_id=1,
+                    user_answer="A",
+                    is_correct=True,
+                    answered_at=now,
+                ),
+                AnswerRecord(
+                    user_id=user.id,
+                    question_id=2,
+                    bank_id=1,
+                    user_answer="A",
+                    is_correct=False,
+                    answered_at=now - timedelta(days=1),
+                ),
+            ])
+            stale = GenerateTask(
+                id=uuid.uuid4().hex,
+                status="running",
+                created_at=now - timedelta(hours=2),
+                updated_at=now - timedelta(hours=2),
+            )
+            db.add(stale)
+            db.commit()
+            self.assertEqual(get_user_stats(db, user.id)["streak_days"], 2)
+            self.assertEqual(recover_stale_tasks(db, 60), 1)
+            db.refresh(stale)
+            self.assertEqual(stale.status, "failed")
+        finally:
+            db.close()
+
+    def test_user_progress_unique_constraint_is_declared(self):
+        constraints = UserProgress.__table__.constraints
+        self.assertIn("uq_user_progress_user_bank", {c.name for c in constraints})
 
 
 if __name__ == "__main__":

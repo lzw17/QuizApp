@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
+from urllib.parse import urlparse
 import os
 
 
@@ -28,6 +29,7 @@ class Settings(BaseSettings):
     WX_MOCK_ADMIN: bool = False
     ADMIN_OPENIDS: str = ""
     AUTH_TOKEN_EXPIRE_DAYS: int = 30
+    PUBLIC_BASE_URL: str = ""
 
     # MinerU 解析服务（可选）
     MINERU_API_KEY: Optional[str] = None
@@ -36,6 +38,8 @@ class Settings(BaseSettings):
     # 文件上传
     UPLOAD_DIR: str = "./uploads"
     MAX_FILE_SIZE_MB: int = 50
+    MAX_URL_CONTENT_MB: int = 10
+    TASK_STALE_MINUTES: int = 60
 
     # CORS
     ALLOWED_ORIGINS: str = "*"
@@ -46,13 +50,18 @@ class Settings(BaseSettings):
 
     @property
     def allowed_origins_list(self) -> list[str]:
-        if self.ALLOWED_ORIGINS == "*":
+        origins = self.ALLOWED_ORIGINS.strip()
+        if origins == "*":
             return ["*"]
-        return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
+        return [o.strip() for o in origins.split(",") if o.strip()]
 
     @property
     def max_file_size_bytes(self) -> int:
         return self.MAX_FILE_SIZE_MB * 1024 * 1024
+
+    @property
+    def max_url_content_bytes(self) -> int:
+        return self.MAX_URL_CONTENT_MB * 1024 * 1024
 
     @property
     def admin_openids_set(self) -> set[str]:
@@ -60,6 +69,10 @@ class Settings(BaseSettings):
 
     def validate_runtime_security(self) -> None:
         """Fail fast when production authentication is configured unsafely."""
+        if self.MAX_FILE_SIZE_MB <= 0 or self.MAX_URL_CONTENT_MB <= 0:
+            raise RuntimeError("Upload size limits must be positive")
+        if self.TASK_STALE_MINUTES <= 0:
+            raise RuntimeError("TASK_STALE_MINUTES must be positive")
         if self.APP_ENV.lower() not in ("prod", "production"):
             return
         if self.WX_MOCK_LOGIN:
@@ -71,9 +84,22 @@ class Settings(BaseSettings):
             "your-secret-key-change-in-production",
         ):
             raise RuntimeError("SECRET_KEY must be a random value of at least 32 characters")
+        if self.DEBUG:
+            raise RuntimeError("DEBUG must be disabled in production")
+        if self.ALLOWED_ORIGINS.strip() == "*":
+            raise RuntimeError("ALLOWED_ORIGINS must list explicit origins in production")
+        if self.DATABASE_URL.lower().startswith("sqlite"):
+            raise RuntimeError("SQLite is not supported in production; configure MySQL")
+        public_base_url = self.PUBLIC_BASE_URL.strip()
+        if not public_base_url:
+            raise RuntimeError("PUBLIC_BASE_URL is required in production")
+        parsed = urlparse(public_base_url)
+        if parsed.scheme != "https" or not parsed.netloc or parsed.path not in ("", "/"):
+            raise RuntimeError("PUBLIC_BASE_URL must be an HTTPS origin")
 
 
 settings = Settings()
 
 # 确保上传目录存在
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+os.makedirs(os.path.join(settings.UPLOAD_DIR, "avatars"), exist_ok=True)

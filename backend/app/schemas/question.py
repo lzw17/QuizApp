@@ -1,11 +1,19 @@
-from pydantic import BaseModel, Field
-from typing import Optional, List, Any
+from pydantic import BaseModel, Field, model_validator
+from typing import Optional, List, Any, Literal
 from datetime import datetime
 
 
 class OptionItem(BaseModel):
-    key: str        # A / B / C / D
-    text: str       # 选项文字
+    key: str = Field(min_length=1, max_length=1)
+    text: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def normalize(self):
+        self.key = self.key.strip().upper()
+        self.text = self.text.strip()
+        if not self.key or not self.text:
+            raise ValueError("option key and text must not be empty")
+        return self
 
 
 class QuestionBankCreate(BaseModel):
@@ -36,13 +44,41 @@ class QuestionBankOut(QuestionBankListItem):
 
 class QuestionCreate(BaseModel):
     bank_id: int
-    type: str  # single / multi / judge
-    content: str
-    options: List[OptionItem] = []
-    answer: str
-    explanation: str = ""
-    tags: List[str] = []
+    type: Literal["single", "multi", "judge"]
+    content: str = Field(min_length=1, max_length=10000)
+    options: List[OptionItem] = Field(default_factory=list)
+    answer: str = Field(min_length=1, max_length=20)
+    explanation: str = Field(default="", max_length=20000)
+    tags: List[str] = Field(default_factory=list)
     difficulty: int = Field(default=3, ge=1, le=5)
+
+    @model_validator(mode="after")
+    def validate_answer(self):
+        self.content = self.content.strip()
+        self.answer = "".join(self.answer.split()).upper()
+        self.explanation = self.explanation.strip()
+
+        if self.type == "judge" and not self.options:
+            self.options = [
+                OptionItem(key="A", text="正确"),
+                OptionItem(key="B", text="错误"),
+            ]
+        if not self.content or not self.options:
+            raise ValueError("content and options must not be empty")
+
+        keys = [option.key for option in self.options]
+        if len(keys) != len(set(keys)):
+            raise ValueError("option keys must be unique")
+        answer_keys = list(self.answer)
+        if not answer_keys or any(key not in keys for key in answer_keys):
+            raise ValueError("answer must reference available option keys")
+        if self.type in ("single", "judge") and len(answer_keys) != 1:
+            raise ValueError(f"{self.type} questions require exactly one answer")
+        if self.type == "multi" and len(answer_keys) < 1:
+            raise ValueError("multi questions require at least one answer")
+        if len(set(answer_keys)) != len(answer_keys):
+            raise ValueError("answer keys must be unique")
+        return self
 
 
 class QuestionOut(BaseModel):

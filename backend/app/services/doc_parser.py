@@ -152,9 +152,14 @@ async def parse_url(url: str) -> str:
             "Accept": "text/plain",
             "X-Return-Format": "markdown",
         }
-        resp = await client.get(jina_url, headers=headers, follow_redirects=True)
-        resp.raise_for_status()
-        return resp.text
+        async with client.stream("GET", jina_url, headers=headers, follow_redirects=True) as resp:
+            resp.raise_for_status()
+            content = bytearray()
+            async for chunk in resp.aiter_bytes():
+                content.extend(chunk)
+                if len(content) > settings.max_url_content_bytes:
+                    raise ValueError("URL 内容超过大小限制")
+            return bytes(content).decode(resp.encoding or "utf-8", errors="replace")
 
 
 # ─────────────────────────────────────────────

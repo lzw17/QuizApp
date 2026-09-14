@@ -4,8 +4,9 @@ from fastapi.staticfiles import StaticFiles
 import os
 
 from .config import settings
-from .database import create_tables
+from .database import create_tables, SessionLocal
 from .routers import upload, questions, practice, auth
+from .services.question_service import recover_stale_tasks
 
 app = FastAPI(
     title="QuizApp API",
@@ -19,7 +20,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins_list,
-    allow_credentials=True,
+    allow_credentials=settings.ALLOWED_ORIGINS.strip() != "*",
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -31,14 +32,20 @@ app.include_router(questions.router)
 app.include_router(practice.router)
 
 # 挂载上传文件静态访问
-if os.path.exists(settings.UPLOAD_DIR):
-    app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+avatar_dir = os.path.join(settings.UPLOAD_DIR, "avatars")
+os.makedirs(avatar_dir, exist_ok=True)
+app.mount("/uploads/avatars", StaticFiles(directory=avatar_dir), name="avatars")
 
 
 @app.on_event("startup")
 async def startup():
     settings.validate_runtime_security()
     create_tables()
+    db = SessionLocal()
+    try:
+        recover_stale_tasks(db, settings.TASK_STALE_MINUTES)
+    finally:
+        db.close()
 
 
 @app.get("/health")

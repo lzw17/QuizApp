@@ -8,10 +8,12 @@ GET  /api/task/{id}/sse SSE 实时推送进度
 import os
 import uuid
 import asyncio
+from urllib.parse import urlparse
+import ipaddress
 import aiofiles
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user
@@ -29,12 +31,53 @@ ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx"}
 
 
 class UrlUploadRequest(BaseModel):
-    url: str
-    bank_name: str = ""
-    bank_description: str = ""
-    bank_category: str = ""
-    num_direct: int = 3
-    num_logic: int = 2
+    url: str = Field(min_length=1, max_length=2048)
+    bank_name: str = Field(default="", max_length=200)
+    bank_description: str = Field(default="", max_length=5000)
+    bank_category: str = Field(default="", max_length=100)
+    num_direct: int = Field(default=3, ge=1, le=8)
+    num_logic: int = Field(default=2, ge=0, le=8)
+
+
+def _validate_source_url(value: str) -> str:
+    url = value.strip()
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+    except ValueError:
+        raise HTTPException(400, "请输入有效的 HTTP/HTTPS URL")
+    if parsed.scheme not in ("http", "https") or not hostname:
+        raise HTTPException(400, "请输入有效的 HTTP/HTTPS URL")
+    hostname = hostname.rstrip(".").lower()
+    if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith(".local"):
+        raise HTTPException(400, "不允许访问本地地址")
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        address = None
+    if address and (address.is_private or address.is_loopback or address.is_link_local or address.is_reserved):
+        raise HTTPException(400, "不允许访问内网地址")
+    return url
+
+
+async def _save_upload(file: UploadFile, save_path: str) -> None:
+    total = 0
+    try:
+        async with aiofiles.open(save_path, "wb") as target:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > settings.max_file_size_bytes:
+                    raise HTTPException(400, f"文件大小超过限制 {settings.MAX_FILE_SIZE_MB}MB")
+                await target.write(chunk)
+    except Exception:
+        try:
+            os.remove(save_path)
+        except FileNotFoundError:
+            pass
+        raise
 
 
 def _get_source_type(filename: str) -> str:
@@ -50,11 +93,11 @@ def _get_source_type(filename: str) -> str:
 async def upload_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    bank_name: str = Form(""),
-    bank_description: str = Form(""),
-    bank_category: str = Form(""),
-    num_direct: int = Form(3),
-    num_logic: int = Form(2),
+    bank_name: str = Form("", max_length=200),
+    bank_description: str = Form("", max_length=5000),
+    bank_category: str = Form("", max_length=100),
+    num_direct: int = Form(3, ge=1, le=8),
+    num_logic: int = Form(2, ge=0, le=8),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -63,17 +106,12 @@ async def upload_file(
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(400, f"不支持的文件类型，仅支持: {', '.join(ALLOWED_EXTENSIONS)}")
 
-    if file.size and file.size > settings.max_file_size_bytes:
-        raise HTTPException(400, f"文件大小超过限制 {settings.MAX_FILE_SIZE_MB}MB")
-
     source_type = _get_source_type(file.filename or "")
 
     # 保存文件
     task_id = str(uuid.uuid4())
     save_path = os.path.join(settings.UPLOAD_DIR, f"{task_id}{ext}")
-    async with aiofiles.open(save_path, "wb") as f:
-        content = await file.read()
-        await f.write(content)
+    await _save_upload(file, save_path)
 
     # 创建题库
     bank_data = QuestionBankCreate(
@@ -115,9 +153,7 @@ async def upload_url(
     db: Session = Depends(get_db),
 ):
     """提交 URL，爬取页面内容并生成题库"""
-    url = data.url.strip()
-    if not url.startswith(("http://", "https://")):
-        raise HTTPException(400, "请输入有效的 HTTP/HTTPS URL")
+    url = _validate_source_url(data.url)
 
     task_id = str(uuid.uuid4())
 
@@ -183,7 +219,11 @@ async def task_sse(
 
     async def event_generator():
         while True:
-            task = db.query(GenerateTask).filter(GenerateTask.id == task_id).first()
+            poll_db = SessionLocal()
+            try:
+                task = poll_db.query(GenerateTask).filter(GenerateTask.id == task_id).first()
+            finally:
+                poll_db.close()
             if not task:
                 yield f"data: {json.dumps({'error': '任务不存在'})}\n\n"
                 break

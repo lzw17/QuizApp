@@ -4,9 +4,11 @@
 import uuid
 import asyncio
 import logging
+from datetime import date, datetime, timedelta
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, func as sa_func
+from sqlalchemy.exc import IntegrityError
 
 from ..models.question import QuestionBank, Question, GenerateTask, TaskStatus, BankStatus
 from ..models.user import User, UserProgress, AnswerRecord
@@ -20,6 +22,29 @@ logger = logging.getLogger(__name__)
 
 class GenerationCancelled(Exception):
     pass
+
+
+def _get_or_create_progress(db: Session, user_id: int, bank_id: int) -> UserProgress:
+    progress = db.query(UserProgress).filter(
+        UserProgress.user_id == user_id,
+        UserProgress.bank_id == bank_id,
+    ).first()
+    if progress:
+        return progress
+
+    try:
+        with db.begin_nested():
+            progress = UserProgress(user_id=user_id, bank_id=bank_id, starred_ids=[])
+            db.add(progress)
+            db.flush()
+    except IntegrityError:
+        progress = db.query(UserProgress).filter(
+            UserProgress.user_id == user_id,
+            UserProgress.bank_id == bank_id,
+        ).first()
+        if not progress:
+            raise
+    return progress
 
 
 # ──────────────────────────────────────────
@@ -63,9 +88,10 @@ def get_questions(
     skip: int = 0,
     limit: int = 20,
 ) -> List[Question]:
-    query = db.query(Question).filter(
+    query = db.query(Question).join(QuestionBank).filter(
         Question.bank_id == bank_id,
         Question.status == "active",
+        QuestionBank.status == BankStatus.ready,
     )
     if tag:
         query = query.filter(Question.tags.contains(tag))
@@ -103,7 +129,7 @@ def get_wrong_questions(db: Session, user_id: int, bank_id: Optional[int] = None
         q = db.query(Question).join(QuestionBank).filter(
             Question.id == record.question_id,
             Question.status == "active",
-            QuestionBank.status != BankStatus.deleted,
+            QuestionBank.status == BankStatus.ready,
         ).first()
         if q:
             results.append({
@@ -136,7 +162,7 @@ def get_starred_questions(db: Session, user_id: int, bank_id: int) -> List[Quest
     return db.query(Question).join(QuestionBank).filter(
         Question.id.in_(progress.starred_ids),
         Question.status == "active",
-        QuestionBank.status != BankStatus.deleted,
+        QuestionBank.status == BankStatus.ready,
     ).all()
 
 
@@ -145,9 +171,14 @@ def get_starred_questions(db: Session, user_id: int, bank_id: int) -> List[Quest
 # ──────────────────────────────────────────
 
 def submit_answer(db: Session, data: AnswerSubmit, user_id: int) -> AnswerResult:
-    question = db.query(Question).filter(Question.id == data.question_id).first()
+    question = db.query(Question).join(QuestionBank).filter(
+        Question.id == data.question_id,
+        Question.bank_id == data.bank_id,
+        Question.status == "active",
+        QuestionBank.status == BankStatus.ready,
+    ).first()
     if not question:
-        raise ValueError("题目不存在")
+        raise ValueError("题目不存在或不属于该题库")
 
     # 判断对错（多选题需要答案集合相同）
     correct_set = set(question.answer.upper())
@@ -174,17 +205,7 @@ def submit_answer(db: Session, data: AnswerSubmit, user_id: int) -> AnswerResult
     question.answer_count = total
 
     # 更新用户进度
-    progress = db.query(UserProgress).filter(
-        UserProgress.user_id == user_id,
-        UserProgress.bank_id == data.bank_id,
-    ).first()
-    if not progress:
-        progress = UserProgress(
-            user_id=user_id,
-            bank_id=data.bank_id,
-            starred_ids=[],
-        )
-        db.add(progress)
+    progress = _get_or_create_progress(db, user_id, data.bank_id)
     progress.total_answered = (progress.total_answered or 0) + 1
     if is_correct:
         progress.correct_count = (progress.correct_count or 0) + 1
@@ -201,13 +222,16 @@ def submit_answer(db: Session, data: AnswerSubmit, user_id: int) -> AnswerResult
 
 def toggle_star(db: Session, user_id: int, bank_id: int, question_id: int) -> bool:
     """收藏/取消收藏，返回当前状态（True=已收藏）"""
-    progress = db.query(UserProgress).filter(
-        UserProgress.user_id == user_id,
-        UserProgress.bank_id == bank_id,
+    question = db.query(Question).join(QuestionBank).filter(
+        Question.id == question_id,
+        Question.bank_id == bank_id,
+        Question.status == "active",
+        QuestionBank.status == BankStatus.ready,
     ).first()
-    if not progress:
-        progress = UserProgress(user_id=user_id, bank_id=bank_id, starred_ids=[])
-        db.add(progress)
+    if not question:
+        raise ValueError("题目不存在或不属于该题库")
+
+    progress = _get_or_create_progress(db, user_id, bank_id)
 
     starred = list(progress.starred_ids or [])
     if question_id in starred:
@@ -223,13 +247,14 @@ def toggle_star(db: Session, user_id: int, bank_id: int, question_id: int) -> bo
 
 
 def update_progress_position(db: Session, user_id: int, bank_id: int, position: int):
-    progress = db.query(UserProgress).filter(
-        UserProgress.user_id == user_id,
-        UserProgress.bank_id == bank_id,
+    bank = db.query(QuestionBank.id).filter(
+        QuestionBank.id == bank_id,
+        QuestionBank.status == BankStatus.ready,
     ).first()
-    if not progress:
-        progress = UserProgress(user_id=user_id, bank_id=bank_id, starred_ids=[])
-        db.add(progress)
+    if not bank:
+        raise ValueError("题库不存在")
+
+    progress = _get_or_create_progress(db, user_id, bank_id)
     progress.last_position = position
     db.commit()
 
@@ -239,8 +264,6 @@ def update_progress_position(db: Session, user_id: int, bank_id: int, position: 
 # ──────────────────────────────────────────
 
 def get_user_stats(db: Session, user_id: int) -> dict:
-    from datetime import date, datetime, timedelta
-
     total_records = db.query(AnswerRecord).filter(AnswerRecord.user_id == user_id).count()
     correct_records = db.query(AnswerRecord).filter(
         AnswerRecord.user_id == user_id,
@@ -267,8 +290,20 @@ def get_user_stats(db: Session, user_id: int) -> dict:
         starred_count += len(p.starred_ids or [])
 
     accuracy = round(correct_records / total_records, 3) if total_records > 0 else 0.0
+    answered_days = {
+        record.answered_at.date()
+        for record in db.query(AnswerRecord.answered_at).filter(
+            AnswerRecord.user_id == user_id,
+            AnswerRecord.answered_at.isnot(None),
+        ).all()
+    }
+    streak_days = 0
+    cursor = date.today()
+    while cursor in answered_days:
+        streak_days += 1
+        cursor -= timedelta(days=1)
 
-    return {
+    result = {
         "total_answered": total_records,
         "correct_count": correct_records,
         "accuracy": accuracy,
@@ -276,8 +311,28 @@ def get_user_stats(db: Session, user_id: int) -> dict:
         "wrong_count": wrong_count,
         "starred_count": starred_count,
         "today_answered": today_answered,
-        "streak_days": 1,  # 简化实现，生产可计算连续天数
+        "streak_days": streak_days,
     }
+    return result
+
+
+def recover_stale_tasks(db: Session, stale_minutes: int = 60) -> int:
+    """Mark interrupted background tasks as failed after a process restart."""
+    if stale_minutes <= 0:
+        raise ValueError("stale_minutes must be positive")
+
+    stale_before = datetime.utcnow() - timedelta(minutes=stale_minutes)
+    tasks = db.query(GenerateTask).filter(
+        GenerateTask.status.in_([TaskStatus.pending, TaskStatus.running]),
+        sa_func.coalesce(GenerateTask.updated_at, GenerateTask.created_at) < stale_before,
+    ).all()
+    for task in tasks:
+        task.status = TaskStatus.failed
+        task.message = "任务因服务重启或超时已终止"
+        task.error = f"stale task recovered after {stale_minutes} minutes"
+    if tasks:
+        db.commit()
+    return len(tasks)
 
 
 # ──────────────────────────────────────────
@@ -363,7 +418,7 @@ async def run_generate_task(
         db.flush()
         updated = db.query(QuestionBank).filter(
             QuestionBank.id == bank_id,
-            QuestionBank.status != BankStatus.deleted,
+        QuestionBank.status == BankStatus.ready,
         ).update(
             {
                 QuestionBank.total_count: len(questions),

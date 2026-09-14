@@ -8,7 +8,7 @@ App({
     sessionVersion: 0,
     isNewUser: false,
     profileRequired: false,
-    baseUrl: 'https://your-server.com', // 生产环境改为实际域名
+    baseUrl: 'https://api.example.com', // 发布前替换为已备案并配置到微信平台的 HTTPS 域名
     devLanUrl: 'http://192.168.71.4:8000', // 局域网真机调试用
   },
 

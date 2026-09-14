@@ -11,11 +11,11 @@ GET  /api/stats               获取个人学习统计
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..database import get_db
 from ..auth import get_current_user
-from ..models.question import Question
+from ..models.question import Question, QuestionBank, BankStatus
 from ..models.user import User, UserProgress
 from ..schemas.user import AnswerSubmit, AnswerResult, UserStatsOut, UserProgressOut
 from ..services.question_service import (
@@ -49,13 +49,13 @@ def answer_question(
 
 class ExamAnswerItem(BaseModel):
     question_id: int
-    user_answer: str
-    time_spent: int = 0
+    user_answer: str = Field(default="", max_length=20)
+    time_spent: int = Field(default=0, ge=0, le=86400)
 
 
 class ExamSubmitRequest(BaseModel):
     bank_id: int
-    answers: List[ExamAnswerItem]
+    answers: List[ExamAnswerItem] = Field(min_length=1, max_length=100)
     total_time: int = 0  # 总用时（秒）
 
 
@@ -155,7 +155,10 @@ def star_question(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    is_starred = toggle_star(db, current_user.id, data.bank_id, data.question_id)
+    try:
+        is_starred = toggle_star(db, current_user.id, data.bank_id, data.question_id)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     return {"is_starred": is_starred, "question_id": data.question_id}
 
 
@@ -165,7 +168,7 @@ def star_question(
 
 class ProgressUpdateRequest(BaseModel):
     bank_id: int
-    position: int
+    position: int = Field(ge=0)
 
 
 @router.post("/progress")
@@ -174,7 +177,12 @@ def update_progress(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    update_progress_position(db, current_user.id, data.bank_id, data.position)
+    if data.position < 0:
+        raise HTTPException(400, "进度位置不能为负数")
+    try:
+        update_progress_position(db, current_user.id, data.bank_id, data.position)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     return {"message": "进度已保存"}
 
 
@@ -184,6 +192,13 @@ def get_progress(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    bank = db.query(QuestionBank.id).filter(
+        QuestionBank.id == bank_id,
+        QuestionBank.status == BankStatus.ready,
+    ).first()
+    if not bank:
+        raise HTTPException(404, "题库不存在")
+
     progress = db.query(UserProgress).filter(
         UserProgress.user_id == current_user.id,
         UserProgress.bank_id == bank_id,

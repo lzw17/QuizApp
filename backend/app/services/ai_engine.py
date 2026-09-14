@@ -11,6 +11,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
 from ..config import settings
+from ..schemas.question import QuestionCreate
 from ..utils.dedup import deduplicate_questions
 
 logger = logging.getLogger(__name__)
@@ -119,30 +120,27 @@ def _parse_llm_output(raw: str) -> List[dict]:
 
 def _normalize_question(q: dict, bank_id: int, order_index: int) -> Optional[dict]:
     """标准化并验证题目字段"""
-    content = (q.get("content") or "").strip()
-    answer = (q.get("answer") or "").strip().upper()
-    qtype = q.get("type", "single")
-
-    if not content or not answer:
+    if not isinstance(q, dict):
         return None
-    if qtype not in ("single", "multi", "judge"):
-        qtype = "single"
+    try:
+        validated = QuestionCreate(
+            bank_id=bank_id,
+            type=q.get("type", "single"),
+            content=q.get("content", ""),
+            options=q.get("options") or [],
+            answer=q.get("answer", ""),
+            explanation=q.get("explanation") or "",
+            tags=q.get("tags") or [],
+            difficulty=q.get("difficulty", 3),
+        )
+    except (TypeError, ValueError) as exc:
+        logger.warning("Skipping invalid generated question: %s", exc)
+        return None
 
-    options = q.get("options", [])
-    if qtype == "judge" and not options:
-        options = [{"key": "A", "text": "正确"}, {"key": "B", "text": "错误"}]
-
-    return {
-        "bank_id": bank_id,
-        "type": qtype,
-        "content": content,
-        "options": options,
-        "answer": answer,
-        "explanation": (q.get("explanation") or "").strip(),
-        "tags": q.get("tags") or [],
-        "difficulty": max(1, min(5, int(q.get("difficulty", 3)))),
-        "order_index": order_index,
-    }
+    normalized = validated.model_dump(exclude={"bank_id"})
+    normalized["bank_id"] = bank_id
+    normalized["order_index"] = order_index
+    return normalized
 
 
 # ──────────────────────────────────────────

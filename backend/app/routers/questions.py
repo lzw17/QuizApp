@@ -33,6 +33,16 @@ def _bank_list_item(bank: QuestionBank, user: User) -> QuestionBankListItem:
     return item
 
 
+def _get_visible_bank(db: Session, bank_id: int, user: User) -> QuestionBank:
+    bank = db.query(QuestionBank).filter(
+        QuestionBank.id == bank_id,
+        QuestionBank.status != BankStatus.deleted,
+    ).first()
+    if not bank or (not user.is_admin and bank.status != BankStatus.ready):
+        raise HTTPException(404, "题库不存在")
+    return bank
+
+
 @router.get("/banks", response_model=List[QuestionBankListItem])
 def list_banks(
     skip: int = Query(0, ge=0),
@@ -68,12 +78,7 @@ def get_bank_detail(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    bank = db.query(QuestionBank).filter(
-        QuestionBank.id == bank_id,
-        QuestionBank.status != BankStatus.deleted,
-    ).first()
-    if not bank:
-        raise HTTPException(404, "题库不存在")
+    bank = _get_visible_bank(db, bank_id, current_user)
 
     # 动态聚合所有标签
     questions = db.query(Question).filter(
@@ -92,14 +97,13 @@ def get_bank_detail(
 
 
 @router.get("/banks/{bank_id}/tags", response_model=List[str])
-def get_bank_tags(bank_id: int, db: Session = Depends(get_db)):
+def get_bank_tags(
+    bank_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """获取题库所有知识点标签（用于分类练习筛选）"""
-    bank = db.query(QuestionBank.id).filter(
-        QuestionBank.id == bank_id,
-        QuestionBank.status != BankStatus.deleted,
-    ).first()
-    if not bank:
-        raise HTTPException(404, "题库不存在")
+    _get_visible_bank(db, bank_id, current_user)
     questions = db.query(Question.tags).filter(
         Question.bank_id == bank_id,
         Question.status == "active",
@@ -161,12 +165,7 @@ def get_questions(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    bank = db.query(QuestionBank.id).filter(
-        QuestionBank.id == bank_id,
-        QuestionBank.status != BankStatus.deleted,
-    ).first()
-    if not bank:
-        raise HTTPException(404, "题库不存在")
+    _get_visible_bank(db, bank_id, current_user)
 
     query = db.query(Question).filter(
         Question.bank_id == bank_id,
@@ -220,7 +219,7 @@ def get_questions(
 @router.get("/questions/{question_id}", response_model=QuestionOut)
 def get_question(
     question_id: int,
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     q = db.query(Question).join(QuestionBank).filter(
@@ -228,7 +227,7 @@ def get_question(
         Question.status == "active",
         QuestionBank.status != BankStatus.deleted,
     ).first()
-    if not q:
+    if not q or (not current_user.is_admin and q.bank.status != BankStatus.ready):
         raise HTTPException(404, "题目不存在")
     return q
 

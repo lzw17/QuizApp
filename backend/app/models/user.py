@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Float, Boolean, DateTime, JSON, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, Float, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
@@ -22,6 +22,9 @@ class User(Base):
 class UserProgress(Base):
     """用户在某题库的练习进度"""
     __tablename__ = "user_progress"
+    __table_args__ = (
+        UniqueConstraint("user_id", "bank_id", name="uq_user_progress_user_bank"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)

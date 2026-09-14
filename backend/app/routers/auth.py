@@ -86,8 +86,7 @@ async def wx_login(data: LoginRequest, db: Session = Depends(get_db)):
             if not user:
                 raise HTTPException(500, "创建用户失败")
 
-    if _is_configured_admin(openid) and not user.is_admin:
-        user.is_admin = True
+    user.is_admin = _is_configured_admin(openid)
 
     user.last_login = datetime.utcnow()
     db.commit()
@@ -108,8 +107,9 @@ def get_me(
     db: Session = Depends(get_db),
 ):
     """Validate the application session and return the current user."""
-    if _is_configured_admin(current_user.openid) and not current_user.is_admin:
-        current_user.is_admin = True
+    configured_admin = _is_configured_admin(current_user.openid)
+    if current_user.is_admin != configured_admin:
+        current_user.is_admin = configured_admin
         db.commit()
         db.refresh(current_user)
     return UserOut.model_validate(current_user)
@@ -141,7 +141,7 @@ async def upload_avatar(
     with open(save_path, "wb") as f:
         f.write(content)
 
-    base = str(request.base_url).rstrip("/")
+    base = settings.PUBLIC_BASE_URL.strip().rstrip("/") or str(request.base_url).rstrip("/")
     full_url = f"{base}/uploads/avatars/{filename}"
 
     current_user.avatar = full_url
