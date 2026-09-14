@@ -18,8 +18,9 @@ from sqlalchemy import func as sa_func
 from ..auth import get_current_user, require_admin
 from ..database import get_db
 from ..models.question import GenerateTask, QuestionBank, Question, BankStatus, TaskStatus
-from ..models.user import AnswerRecord, User, UserProgress
+from ..models.user import User, UserProgress
 from ..schemas.question import QuestionBankListItem, QuestionBankOut, QuestionOut, QuestionPublicOut, QuestionCreate
+from ..services.question_service import get_current_wrong_question_ids
 
 router = APIRouter(prefix="/api", tags=["questions"])
 
@@ -180,17 +181,7 @@ def get_questions(
 
     ordered_ids: Optional[List[int]] = None
     if mode == "wrong":
-        records = db.query(AnswerRecord).filter(
-            AnswerRecord.user_id == current_user.id,
-            AnswerRecord.bank_id == bank_id,
-            AnswerRecord.is_correct == False,
-        ).order_by(AnswerRecord.answered_at.desc()).all()
-        ordered_ids = []
-        seen = set()
-        for record in records:
-            if record.question_id not in seen:
-                seen.add(record.question_id)
-                ordered_ids.append(record.question_id)
+        ordered_ids = get_current_wrong_question_ids(db, current_user.id, bank_id)
         if not ordered_ids:
             return []
         query = query.filter(Question.id.in_(ordered_ids))
@@ -238,11 +229,7 @@ def count_questions(
         Question.status == "active",
     )
     if mode == "wrong":
-        ids = [row[0] for row in db.query(AnswerRecord.question_id).filter(
-            AnswerRecord.user_id == current_user.id,
-            AnswerRecord.bank_id == bank_id,
-            AnswerRecord.is_correct == False,
-        ).distinct().all()]
+        ids = get_current_wrong_question_ids(db, current_user.id, bank_id)
         query = query.filter(Question.id.in_(ids)) if ids else query.filter(Question.id == -1)
     elif mode == "starred":
         progress = db.query(UserProgress).filter(

@@ -84,8 +84,23 @@
       <text class="sc-arrow">›</text>
     </view>
     <view class="shortcut-divider"></view>
+    <view class="shortcut-item" bindtap="goReport">
+      <text class="sc-label">学习报告</text>
+      <text class="sc-arrow">›</text>
+    </view>
+    <view class="shortcut-divider"></view>
+    <view class="shortcut-item" bindtap="goPrivacy">
+      <text class="sc-label">隐私说明</text>
+      <text class="sc-arrow">›</text>
+    </view>
+    <view class="shortcut-divider"></view>
     <view class="shortcut-item" bindtap="logout">
       <text class="sc-label logout-label">退出登录</text>
+      <text class="sc-arrow">›</text>
+    </view>
+    <view class="shortcut-divider"></view>
+    <view class="shortcut-item" bindtap="deleteAccount">
+      <text class="sc-label logout-label">注销账号</text>
       <text class="sc-arrow">›</text>
     </view>
   </view>

@@ -93,9 +93,22 @@ Page({
     wx.navigateTo({ url: `/pages/practice/practice?bank_id=${bankId}&mode=wrong` });
   },
 
+  memorizeWrong() {
+    const { filterBankId, wrongList } = this.data;
+    if (!wrongList.length) return;
+    const bankId = filterBankId || wrongList[0].bank_id;
+    wx.navigateTo({ url: `/pages/practice/practice?bank_id=${bankId}&mode=memorize&source=wrong` });
+  },
+
   practiceStar() {
     const { starList } = this.data;
     if (!starList.length) return;
     wx.navigateTo({ url: `/pages/practice/practice?bank_id=${starList[0].bank_id}&mode=starred` });
+  },
+
+  memorizeStar() {
+    const { starList } = this.data;
+    if (!starList.length) return;
+    wx.navigateTo({ url: `/pages/practice/practice?bank_id=${starList[0].bank_id}&mode=memorize&source=starred` });
   },
 });

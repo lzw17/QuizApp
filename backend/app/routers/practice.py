@@ -9,9 +9,9 @@ GET  /api/progress/{bank_id}  获取用户在该题库的进度
 GET  /api/stats               获取个人学习统计
 """
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func as sa_func
 from pydantic import BaseModel, Field
@@ -19,13 +19,13 @@ from pydantic import BaseModel, Field
 from ..database import get_db
 from ..auth import get_current_user
 from ..models.question import Question, QuestionBank, BankStatus, ExamSession
-from ..models.user import User, UserProgress
+from ..models.user import AnswerRecord, User, UserProgress
 from ..schemas.user import AnswerSubmit, AnswerResult, UserStatsOut, UserProgressOut
 from ..schemas.question import QuestionPublicOut
 from ..services.question_service import (
     submit_answer, toggle_star, update_progress_position,
     get_wrong_questions, get_user_stats,
-    evaluate_answer,
+    evaluate_answer, get_review_questions,
 )
 
 router = APIRouter(prefix="/api", tags=["practice"])
@@ -68,6 +68,8 @@ class ExamSubmitRequest(BaseModel):
 class ExamStartRequest(BaseModel):
     bank_id: int
     question_count: int = Field(default=20, ge=1, le=100)
+    tag: Optional[str] = Field(default=None, max_length=100)
+    difficulty: Optional[int] = Field(default=None, ge=1, le=5)
 
 
 class ExamStartResult(BaseModel):
@@ -198,7 +200,12 @@ def start_exam(
     questions = db.query(Question).filter(
         Question.bank_id == data.bank_id,
         Question.status == "active",
-    ).order_by(sa_func.random()).limit(data.question_count).all()
+    )
+    if data.tag:
+        questions = questions.filter(Question.tags.contains(f'"{data.tag}"'))
+    if data.difficulty:
+        questions = questions.filter(Question.difficulty == data.difficulty)
+    questions = questions.order_by(sa_func.random()).limit(data.question_count).all()
     if not questions:
         raise HTTPException(400, "题库暂无可用题目")
     session_id = uuid.uuid4().hex
@@ -275,6 +282,112 @@ def list_starred_questions(
 # ──────────────────────────────────────────
 #  收藏
 # ──────────────────────────────────────────
+
+@router.get("/review-questions")
+def list_review_questions(
+    bank_id: int,
+    source: str = Query("wrong", pattern="^(wrong|starred)$"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return answer-bearing questions only for a user's own review set."""
+    bank = db.query(QuestionBank).filter(
+        QuestionBank.id == bank_id,
+        QuestionBank.status == BankStatus.ready,
+    ).first()
+    if not bank:
+        raise HTTPException(404, "question bank not found")
+    try:
+        return get_review_questions(db, current_user.id, bank_id, source)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.get("/daily-question")
+def get_daily_question(
+    bank_id: Optional[int] = Query(None, ge=1),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Pick a deterministic question for the current day and bank."""
+    bank_query = db.query(QuestionBank).filter(QuestionBank.status == BankStatus.ready)
+    if bank_id:
+        bank_query = bank_query.filter(QuestionBank.id == bank_id)
+    bank = bank_query.order_by(QuestionBank.id.desc()).first()
+    if not bank:
+        raise HTTPException(404, "no ready question bank")
+    questions = db.query(Question).filter(
+        Question.bank_id == bank.id,
+        Question.status == "active",
+    ).order_by(Question.order_index, Question.id).all()
+    if not questions:
+        raise HTTPException(404, "question bank is empty")
+    today = date.today()
+    question = questions[int(today.strftime("%Y%m%d")) % len(questions)]
+    today_start = datetime.combine(today, datetime.min.time())
+    answered = db.query(AnswerRecord.id).filter(
+        AnswerRecord.user_id == current_user.id,
+        AnswerRecord.question_id == question.id,
+        AnswerRecord.answered_at >= today_start,
+    ).first() is not None
+    return {
+        "date": today.isoformat(),
+        "bank_id": bank.id,
+        "bank_name": bank.name,
+        "is_answered": answered,
+        "question": QuestionPublicOut.model_validate(question).model_dump(),
+    }
+
+
+@router.get("/study-report")
+def get_study_report(
+    days: int = Query(7, ge=7, le=30),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return daily activity, accuracy trend and weak knowledge tags."""
+    today = date.today()
+    start_date = today - timedelta(days=days - 1)
+    start_at = datetime.combine(start_date, datetime.min.time())
+    records = db.query(AnswerRecord).filter(
+        AnswerRecord.user_id == current_user.id,
+        AnswerRecord.answered_at >= start_at,
+    ).all()
+    daily = {
+        current_date: {"date": current_date.isoformat(), "total": 0, "correct": 0}
+        for current_date in (start_date + timedelta(days=i) for i in range(days))
+    }
+    question_ids = {record.question_id for record in records}
+    questions = db.query(Question).filter(Question.id.in_(question_ids)).all() if question_ids else []
+    by_id = {question.id: question for question in questions}
+    weak_tags = {}
+    for record in records:
+        current_date = (record.answered_at or datetime.utcnow()).date()
+        if current_date not in daily:
+            continue
+        daily[current_date]["total"] += 1
+        if record.is_correct:
+            daily[current_date]["correct"] += 1
+        else:
+            question = by_id.get(record.question_id)
+            for tag in (question.tags or []) if question else []:
+                weak_tags[str(tag)] = weak_tags.get(str(tag), 0) + 1
+    daily_result = []
+    for item in daily.values():
+        item["accuracy"] = round(item["correct"] / item["total"], 3) if item["total"] else 0.0
+        daily_result.append(item)
+    weak_result = [
+        {"tag": tag, "count": count}
+        for tag, count in sorted(weak_tags.items(), key=lambda pair: (-pair[1], pair[0]))[:3]
+    ]
+    return {
+        "days": days,
+        "daily": daily_result,
+        "weak_tags": weak_result,
+        "active_days": sum(1 for item in daily_result if item["total"]),
+        "streak_days": get_user_stats(db, current_user.id)["streak_days"],
+    }
+
 
 class StarRequest(BaseModel):
     bank_id: int

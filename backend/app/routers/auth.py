@@ -18,7 +18,8 @@ from sqlalchemy.orm import Session
 
 from ..auth import create_access_token, get_current_user
 from ..database import get_db
-from ..models.user import User
+from ..models.question import ExamSession, QuestionBank
+from ..models.user import AnswerRecord, User, UserProgress
 from ..schemas.user import UserOut
 from ..config import settings
 
@@ -124,6 +125,35 @@ def logout(
     current_user.token_version = (current_user.token_version or 0) + 1
     db.commit()
     return {"message": "已退出登录"}
+
+
+@router.delete("/account")
+def delete_account(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Anonymize and disable an account, then revoke every active token."""
+    old_openid = current_user.openid
+    db.query(AnswerRecord).filter(AnswerRecord.user_id == current_user.id).delete(
+        synchronize_session=False
+    )
+    db.query(UserProgress).filter(UserProgress.user_id == current_user.id).delete(
+        synchronize_session=False
+    )
+    db.query(ExamSession).filter(ExamSession.user_id == current_user.id).delete(
+        synchronize_session=False
+    )
+    db.query(QuestionBank).filter(QuestionBank.created_by == old_openid).update(
+        {QuestionBank.created_by: ""}, synchronize_session=False
+    )
+    current_user.openid = f"deleted_{uuid.uuid4().hex}"
+    current_user.nickname = ""
+    current_user.avatar = ""
+    current_user.is_admin = False
+    current_user.is_active = False
+    current_user.token_version = (current_user.token_version or 0) + 1
+    db.commit()
+    return {"message": "Account deleted"}
 
 
 @router.post("/avatar")

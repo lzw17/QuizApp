@@ -1,0 +1,8 @@
+.container { min-height: 100vh; padding: 24rpx; box-sizing: border-box; }
+.hero, .section { border-radius: 20rpx; margin-bottom: 20rpx; }
+.title { font-size: 38rpx; font-weight: 700; color: #222; }
+.updated { color: #999; font-size: 22rpx; margin-top: 12rpx; }
+.section-title { font-size: 30rpx; font-weight: 700; color: #333; margin-bottom: 18rpx; }
+.paragraph { color: #555; font-size: 26rpx; line-height: 1.9; margin-bottom: 14rpx; }
+.paragraph:last-child { margin-bottom: 0; }
+.footer { color: #999; font-size: 22rpx; line-height: 1.7; padding: 10rpx 8rpx 40rpx; }

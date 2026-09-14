@@ -148,6 +148,10 @@ def get_wrong_questions(db: Session, user_id: int, bank_id: Optional[int] = None
             seen.add(r.question_id)
             unique.append(r)
 
+    latest = get_latest_answer_records(db, user_id, bank_id)
+    unique = [record for record in latest.values() if not record.is_correct]
+    unique.sort(key=lambda record: record.answered_at or datetime.min, reverse=True)
+
     results = []
     for record in unique[:100]:
         q = db.query(Question).join(QuestionBank).filter(
@@ -174,6 +178,84 @@ def get_wrong_questions(db: Session, user_id: int, bank_id: Optional[int] = None
                 },
             })
     return results
+
+
+def get_latest_answer_records(
+    db: Session,
+    user_id: int,
+    bank_id: Optional[int] = None,
+) -> dict[int, AnswerRecord]:
+    """Get the latest answer attempt for each question owned by a user."""
+    query = db.query(AnswerRecord).filter(AnswerRecord.user_id == user_id)
+    if bank_id:
+        query = query.filter(AnswerRecord.bank_id == bank_id)
+    records = query.order_by(
+        AnswerRecord.answered_at.desc(),
+        AnswerRecord.id.desc(),
+    ).all()
+    latest: dict[int, AnswerRecord] = {}
+    for record in records:
+        latest.setdefault(record.question_id, record)
+    return latest
+
+
+def get_current_wrong_question_ids(
+    db: Session,
+    user_id: int,
+    bank_id: Optional[int] = None,
+) -> List[int]:
+    """Return question ids that are still wrong after the latest attempt."""
+    latest = get_latest_answer_records(db, user_id, bank_id)
+    records = [record for record in latest.values() if not record.is_correct]
+    records.sort(key=lambda record: record.answered_at or datetime.min, reverse=True)
+    return [record.question_id for record in records]
+
+
+def get_review_questions(
+    db: Session,
+    user_id: int,
+    bank_id: int,
+    source: str,
+) -> List[dict]:
+    """Return answer-bearing questions only for the user's review set."""
+    if source == "wrong":
+        question_ids = get_current_wrong_question_ids(db, user_id, bank_id)
+    elif source == "starred":
+        progress = db.query(UserProgress).filter(
+            UserProgress.user_id == user_id,
+            UserProgress.bank_id == bank_id,
+        ).first()
+        question_ids = list(progress.starred_ids or []) if progress else []
+    else:
+        raise ValueError("source must be wrong or starred")
+
+    if not question_ids:
+        return []
+    question_ids = question_ids[:100]
+    questions = db.query(Question).join(QuestionBank).filter(
+        Question.id.in_(question_ids),
+        Question.bank_id == bank_id,
+        Question.status == "active",
+        QuestionBank.status == BankStatus.ready,
+    ).all()
+    by_id = {question.id: question for question in questions}
+    return [
+        {
+            "id": question.id,
+            "bank_id": question.bank_id,
+            "type": question.type,
+            "content": question.content,
+            "options": question.options,
+            "answer": question.answer,
+            "explanation": question.explanation,
+            "tags": question.tags,
+            "difficulty": question.difficulty,
+            "correct_rate": question.correct_rate,
+            "order_index": question.order_index,
+        }
+        for question_id in question_ids
+        if (question := by_id.get(question_id)) is not None
+    ]
 
 
 def get_starred_questions(db: Session, user_id: int, bank_id: int) -> List[Question]:
@@ -290,7 +372,7 @@ def get_user_stats(db: Session, user_id: int) -> dict:
         AnswerRecord.user_id == user_id,
         AnswerRecord.is_correct == True,
     ).count()
-    wrong_count = total_records - correct_records
+    wrong_count = len(get_current_wrong_question_ids(db, user_id))
 
     banks_studied = db.query(UserProgress).filter(
         UserProgress.user_id == user_id,

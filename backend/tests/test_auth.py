@@ -387,6 +387,42 @@ class AuthFlowTest(unittest.TestCase):
         self.assertEqual(self.client.post("/api/auth/logout", headers=headers).status_code, 200)
         self.assertEqual(self.client.get("/api/auth/me", headers=headers).status_code, 401)
 
+    def test_account_deletion_anonymizes_user_and_revokes_token(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        bank_id, question_id = self.create_bank()
+        db = SessionLocal()
+        try:
+            db.add(UserProgress(
+                user_id=session["user"]["id"],
+                bank_id=bank_id,
+                total_answered=1,
+                starred_ids=[question_id],
+            ))
+            db.add(AnswerRecord(
+                user_id=session["user"]["id"],
+                question_id=question_id,
+                bank_id=bank_id,
+                user_answer="A",
+                is_correct=True,
+            ))
+            db.commit()
+        finally:
+            db.close()
+
+        response = self.client.delete("/api/auth/account", headers=headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.client.get("/api/auth/me", headers=headers).status_code, 401)
+        db = SessionLocal()
+        try:
+            user = db.get(User, session["user"]["id"])
+            self.assertFalse(user.is_active)
+            self.assertEqual(user.nickname, "")
+            self.assertEqual(db.query(AnswerRecord).filter(AnswerRecord.user_id == user.id).count(), 0)
+            self.assertEqual(db.query(UserProgress).filter(UserProgress.user_id == user.id).count(), 0)
+        finally:
+            db.close()
+
     def test_admin_configuration_can_be_revoked(self):
         session = self.login()
         headers = {"Authorization": f"Bearer {session['access_token']}"}
@@ -457,6 +493,95 @@ class AuthFlowTest(unittest.TestCase):
                 options=[{"key": "A", "text": "answer"}],
                 answer="B",
             )
+
+    def test_latest_wrong_attempt_is_resolved_by_correct_retry(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        bank_id, question_id = self.create_bank()
+        db = SessionLocal()
+        try:
+            question = db.get(Question, question_id)
+            question.options = [
+                {"key": "A", "text": "correct"},
+                {"key": "B", "text": "wrong"},
+            ]
+            question.tags = ["retry"]
+            db.commit()
+        finally:
+            db.close()
+
+        wrong = self.client.post(
+            "/api/answer",
+            headers=headers,
+            json={"bank_id": bank_id, "question_id": question_id, "user_answer": "B"},
+        )
+        self.assertEqual(wrong.status_code, 200, wrong.text)
+        self.assertEqual(len(self.client.get("/api/wrong-questions", headers=headers).json()), 1)
+        review = self.client.get(
+            f"/api/review-questions?bank_id={bank_id}&source=wrong",
+            headers=headers,
+        )
+        self.assertEqual(review.status_code, 200, review.text)
+        self.assertEqual(review.json()[0]["answer"], "A")
+
+        correct = self.client.post(
+            "/api/answer",
+            headers=headers,
+            json={"bank_id": bank_id, "question_id": question_id, "user_answer": "A"},
+        )
+        self.assertEqual(correct.status_code, 200, correct.text)
+        self.assertEqual(self.client.get("/api/wrong-questions", headers=headers).json(), [])
+        self.assertEqual(
+            self.client.get(f"/api/questions/count?bank_id={bank_id}&mode=wrong", headers=headers).json()["total"],
+            0,
+        )
+
+    def test_daily_question_and_study_report_hide_answer(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        bank_id, question_id = self.create_bank()
+        db = SessionLocal()
+        try:
+            db.get(Question, question_id).tags = ["report-tag"]
+            db.commit()
+        finally:
+            db.close()
+
+        daily = self.client.get(f"/api/daily-question?bank_id={bank_id}", headers=headers)
+        self.assertEqual(daily.status_code, 200, daily.text)
+        self.assertEqual(daily.json()["bank_id"], bank_id)
+        self.assertNotIn("answer", daily.json()["question"])
+
+        answer = self.client.post(
+            "/api/answer",
+            headers=headers,
+            json={"bank_id": bank_id, "question_id": question_id, "user_answer": "B"},
+        )
+        self.assertEqual(answer.status_code, 400)
+        report = self.client.get("/api/study-report?days=7", headers=headers)
+        self.assertEqual(report.status_code, 200, report.text)
+        self.assertEqual(len(report.json()["daily"]), 7)
+        self.assertIn("weak_tags", report.json())
+
+    def test_exam_start_accepts_tag_and_difficulty_filters(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        bank_id, question_id = self.create_bank()
+        db = SessionLocal()
+        try:
+            question = db.get(Question, question_id)
+            question.tags = ["filtered"]
+            question.difficulty = 4
+            db.commit()
+        finally:
+            db.close()
+        response = self.client.post(
+            "/api/exam/start",
+            headers=headers,
+            json={"bank_id": bank_id, "question_count": 1, "tag": "filtered", "difficulty": 4},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual([item["id"] for item in response.json()["questions"]], [question_id])
 
     def test_stats_streak_and_stale_task_recovery(self):
         db = SessionLocal()

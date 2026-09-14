@@ -31,6 +31,18 @@
   </view>
 
   <!-- 分类筛选 -->
+  <view class="daily-card card" wx:if="{{dailyQuestion && dailyQuestion.question}}" bindtap="startDaily">
+    <view class="daily-head">
+      <view>
+        <view class="daily-title">每日一题</view>
+        <view class="daily-bank">{{dailyQuestion.bank_name}}</view>
+      </view>
+      <view class="daily-status {{dailyQuestion.is_answered ? 'done' : ''}}">{{dailyQuestion.is_answered ? '今日已完成' : '开始作答'}}</view>
+    </view>
+    <view class="daily-content">{{dailyQuestion.question.content}}</view>
+    <view class="daily-meta">{{dailyQuestion.question.type === 'multi' ? '多选题' : dailyQuestion.question.type === 'judge' ? '判断题' : '单选题'}} · 点击进入练习</view>
+  </view>
+
   <scroll-view class="category-scroll" scroll-x>
     <view class="category-list">
       <view

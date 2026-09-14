@@ -1,0 +1,56 @@
+<view class="container" wx:if="{{report}}">
+  <view class="summary card">
+    <view>
+      <view class="summary-title">近 {{report.days}} 天学习报告</view>
+      <view class="summary-sub">记录你的节奏，找到下一步重点</view>
+    </view>
+    <view class="streak-badge">
+      <text class="streak-num">{{report.streak_days}}</text>
+      <text class="streak-label">连续学习天</text>
+    </view>
+  </view>
+
+  <view class="metric-row">
+    <view class="metric card">
+      <text class="metric-value">{{report.active_days}}</text>
+      <text class="metric-label">活跃天数</text>
+    </view>
+    <view class="metric card">
+      <text class="metric-value">{{report.todayTotal}}</text>
+      <text class="metric-label">今日作答</text>
+    </view>
+    <view class="metric card">
+      <text class="metric-value">{{report.weak_tags.length}}</text>
+      <text class="metric-label">薄弱知识点</text>
+    </view>
+  </view>
+
+  <view class="section card">
+    <view class="section-title">每日趋势</view>
+    <view class="chart">
+      <view class="chart-item" wx:for="{{report.daily}}" wx:key="date">
+        <text class="chart-value">{{item.total}}</text>
+        <view class="bar-wrap"><view class="bar" style="height:{{item.barHeight}}rpx"></view></view>
+        <text class="chart-day">{{item.dayLabel}}</text>
+        <text class="chart-rate">{{item.accuracyText}}</text>
+      </view>
+    </view>
+  </view>
+
+  <view class="section card">
+    <view class="section-title">薄弱知识点</view>
+    <view wx:if="{{report.weak_tags.length}}">
+      <view class="weak-item" wx:for="{{report.weak_tags}}" wx:key="tag">
+        <view class="weak-rank">{{index + 1}}</view>
+        <view class="weak-name">{{item.tag}}</view>
+        <view class="weak-count">错 {{item.count}} 次</view>
+      </view>
+    </view>
+    <view class="empty-inline" wx:else>近期开题记录不足，继续练习后会显示薄弱点</view>
+  </view>
+</view>
+
+<view class="loading-page" wx:if="{{loading}}">
+  <view class="loading-dot"></view>
+  <text>正在生成报告...</text>
+</view>

@@ -22,6 +22,7 @@
   <view wx:if="{{activeTab === 'wrong'}}">
     <view wx:if="{{wrongList.length > 0}}">
       <view class="tip-bar">共 {{wrongList.length}} 道错题 · <text class="tip-link" bindtap="practiceWrong">一键练错题 ›</text></view>
+      <view class="tip-bar"><text class="tip-link" bindtap="memorizeWrong">背题模式 ›</text></view>
       <view class="q-card card" wx:for="{{wrongList}}" wx:key="record_id">
         <view class="qc-header">
           <view class="q-type-tag {{item.question.type}}">{{typeLabel[item.question.type]}}</view>
@@ -50,6 +51,7 @@
   <view wx:if="{{activeTab === 'star'}}">
     <view wx:if="{{starList.length > 0}}">
       <view class="tip-bar">共 {{starList.length}} 道收藏 · <text class="tip-link" bindtap="practiceStar">一键练收藏 ›</text></view>
+      <view class="tip-bar"><text class="tip-link" bindtap="memorizeStar">背题模式 ›</text></view>
       <view class="q-card card" wx:for="{{starList}}" wx:key="id">
         <view class="qc-header">
           <view class="q-type-tag {{item.type}}">{{typeLabel[item.type]}}</view>

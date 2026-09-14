@@ -54,7 +54,7 @@
     </view>
 
     <!-- 解析（答题后展示） -->
-    <view class="explanation" wx:if="{{answered}}">
+    <view class="explanation" wx:if="{{answered && !isMemorize}}">
       <view class="exp-header">
         <view class="exp-result {{isCorrect ? 'correct' : 'wrong'}}">
           {{isCorrect ? '✓ 回答正确' : '✗ 回答错误'}}
@@ -68,6 +68,16 @@
   </view>
 
   <!-- 底部按钮 -->
+  <view class="explanation memorize-explanation" wx:if="{{isMemorize}}">
+    <view class="exp-header">
+      <view class="exp-result reference">参考答案</view>
+      <text class="exp-rate">背题模式</text>
+    </view>
+    <view class="exp-content">
+      <text class="exp-label">解析：</text>{{explanation || '暂无解析'}}
+    </view>
+  </view>
+
   <view class="bottom-bar">
     <view class="nav-btn {{currentIndex === 0 ? 'nav-disabled' : ''}}" bindtap="prevQuestion">‹</view>
     <button

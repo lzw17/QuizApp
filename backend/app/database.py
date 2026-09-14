@@ -41,3 +41,8 @@ def create_tables():
                 connection.execute(text(
                     "ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0"
                 ))
+        if "is_active" not in columns:
+            with engine.begin() as connection:
+                connection.execute(text(
+                    "ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
+                ))

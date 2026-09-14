@@ -16,6 +16,14 @@
 .num-control { display: flex; align-items: center; gap: 28rpx; }
 .num-btn { width: 64rpx; height: 64rpx; background: var(--color-primary-light); color: var(--color-primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 40rpx; font-weight: 700; }
 .num-val { font-size: 40rpx; font-weight: 700; min-width: 60rpx; text-align: center; }
+.filter-setting { width: 100%; max-width: 600rpx; margin-bottom: 32rpx; background: #fff; padding: 24rpx 30rpx; border-radius: 16rpx; box-sizing: border-box; }
+.filter-title { font-size: 28rpx; font-weight: 600; margin-bottom: 16rpx; }
+.filter-scroll { white-space: nowrap; }
+.filter-list { display: inline-flex; gap: 12rpx; }
+.filter-chip, .difficulty-chip { display: inline-block; padding: 10rpx 18rpx; color: #666; background: #F5F6FA; border-radius: 20rpx; font-size: 22rpx; white-space: nowrap; }
+.filter-chip.active, .difficulty-chip.active { color: #fff; background: var(--color-primary); }
+.difficulty-list { display: flex; align-items: center; gap: 12rpx; margin-top: 18rpx; flex-wrap: wrap; }
+.difficulty-label { color: #666; font-size: 22rpx; }
 .start-btn { width: 560rpx; }
 
 /* 考试页 */

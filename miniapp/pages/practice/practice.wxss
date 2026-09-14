@@ -81,9 +81,11 @@
 .exp-result { font-size: 28rpx; font-weight: 700; }
 .exp-result.correct { color: var(--color-success); }
 .exp-result.wrong   { color: var(--color-danger); }
+.exp-result.reference { color: var(--color-primary); }
 .exp-rate { font-size: 22rpx; color: #999; }
 .exp-content { font-size: 26rpx; color: #555; line-height: 1.8; }
 .exp-label { font-weight: 600; color: #F57C00; }
+.memorize-explanation { margin: 0 20rpx 200rpx; }
 
 /* ── 底部导航栏 ── */
 .bottom-bar {

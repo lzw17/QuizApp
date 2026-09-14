@@ -8,6 +8,9 @@ Page({
     phase: 'prepare',   // prepare | exam
     examCount: 20,
     examMinutes: 30,
+    tags: [],
+    selectedTag: '',
+    difficulty: null,
     questions: [],
     currentIndex: 0,
     currentQ: null,
@@ -27,6 +30,23 @@ Page({
       bankId: parseInt(options.bank_id),
       bankName: decodeURIComponent(options.bank_name || ''),
     });
+    this._loadTags();
+  },
+
+  async _loadTags() {
+    try {
+      const tags = await request({ url: `/api/banks/${this.data.bankId}/tags` });
+      this.setData({ tags });
+    } catch {}
+  },
+
+  setTag(e) {
+    this.setData({ selectedTag: e.currentTarget.dataset.tag || '' });
+  },
+
+  setDifficulty(e) {
+    const value = Number(e.currentTarget.dataset.value);
+    this.setData({ difficulty: this.data.difficulty === value ? null : value });
   },
 
   onUnload() {
@@ -43,7 +63,12 @@ Page({
       const exam = await request({
         url: '/api/exam/start',
         method: 'POST',
-        data: { bank_id: this.data.bankId, question_count: this.data.examCount },
+        data: {
+          bank_id: this.data.bankId,
+          question_count: this.data.examCount,
+          tag: this.data.selectedTag || null,
+          difficulty: this.data.difficulty,
+        },
       });
       const list = exam.questions || [];
       if (!list.length) throw new Error('题库暂无可用题目');

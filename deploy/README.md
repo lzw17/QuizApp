@@ -29,8 +29,9 @@ DEEPSEEK_API_KEY=<deepseek key>
 4. Install dependencies in `/opt/quizapp/backend/.venv`. Back up the database,
    inspect duplicate `(user_id, bank_id)` rows, and apply
    `backend/migrations/001_user_progress_unique_mysql.sql` and
-   `backend/migrations/002_user_token_version_mysql.sql` before starting the
-   service. `create_all()` creates missing tables but does not alter existing
+   `backend/migrations/002_user_token_version_mysql.sql`, and
+   `backend/migrations/003_user_account_deletion_mysql.sql` before starting
+   the service. `create_all()` creates missing tables but does not alter existing
    production tables.
 5. Install `quizapp.service` as a systemd unit and start it.
 6. Install `nginx/quizapp.conf`, issue an HTTPS certificate, and reload Nginx.

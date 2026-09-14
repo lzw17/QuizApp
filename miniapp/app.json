@@ -10,6 +10,8 @@
     "pages/result/result",
     "pages/wrong-book/wrong-book",
     "pages/profile/profile",
+    "pages/report/report",
+    "pages/privacy/privacy",
     "pages/manage/manage"
   ],
   "window": {

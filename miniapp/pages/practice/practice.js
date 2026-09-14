@@ -5,6 +5,9 @@ Page({
   data: {
     bankId: null,
     mode: 'sequential',
+    source: 'wrong',
+    questionId: null,
+    isMemorize: false,
     tag: '',
     questions: [],
     currentIndex: 0,
@@ -14,6 +17,7 @@ Page({
     correctAnswer: '',
     explanation: '',
     answered: false,
+    revealed: false,
     isCorrect: false,
     correctRate: 0,
     isStarred: false,
@@ -35,12 +39,17 @@ Page({
   _startTime: 0,
 
   onLoad(options) {
-    const { bank_id, mode, tag, skip } = options;
+    const { bank_id, mode, tag, skip, source, question_id } = options;
     const modeLabels = { sequential: '顺序练习', random: '随机练习', tag: `「${decodeURIComponent(tag || '')}」`, wrong: '错题复习', starred: '收藏练习' };
     const startSkip = parseInt(skip) || 0;
+    modeLabels.memorize = '背题模式';
+    modeLabels.daily = '每日一题';
     this.setData({
       bankId: parseInt(bank_id),
       mode,
+      source: source || 'wrong',
+      questionId: question_id ? parseInt(question_id) : null,
+      isMemorize: mode === 'memorize',
       tag: decodeURIComponent(tag || ''),
       startSkip,
       modeLabel: modeLabels[mode] || '练习',
@@ -53,6 +62,34 @@ Page({
     if (append && this.data.loadingMore) return;
     this.setData(append ? { loadingMore: true } : { loading: true, startSkip: skip });
     try {
+      if (this.data.mode === 'memorize') {
+        const list = await request({
+          url: `/api/review-questions?bank_id=${this.data.bankId}&source=${this.data.source}`,
+        });
+        this.setData({
+          questions: list,
+          total: list.length,
+          hasMore: false,
+          loading: false,
+          loadingMore: false,
+          done: list.length === 0,
+        });
+        if (list.length > 0) this._showQuestion(0);
+        return;
+      }
+      if (this.data.mode === 'daily' && this.data.questionId) {
+        const question = await request({ url: `/api/questions/${this.data.questionId}` });
+        this.setData({
+          questions: [question],
+          total: 1,
+          hasMore: false,
+          loading: false,
+          loadingMore: false,
+          done: false,
+        });
+        this._showQuestion(0);
+        return;
+      }
       const mode = this.data.mode === 'tag' ? 'sequential' : this.data.mode;
       let query = `bank_id=${this.data.bankId}&mode=${mode}&skip=${skip}&limit=100`;
       let countQuery = `bank_id=${this.data.bankId}&mode=${mode}`;
@@ -108,7 +145,7 @@ Page({
     const { question, selectedAnswer, answered, isCorrect, correctRate, correctAnswer, explanation, userAnswers } = this.data;
     if (!question) return;
     const updated = Object.assign({}, userAnswers);
-    updated[question.id] = { selectedAnswer, answered, isCorrect, correctRate, correctAnswer, explanation };
+    updated[question.id] = { selectedAnswer, answered, revealed: this.data.revealed, isCorrect, correctRate, correctAnswer, explanation };
     this.setData({ userAnswers: updated });
   },
 
@@ -124,6 +161,7 @@ Page({
       correctAnswer: saved ? saved.correctAnswer || '' : '',
       explanation: saved ? saved.explanation || '' : '',
       answered: saved ? saved.answered : false,
+      revealed: this.data.isMemorize || Boolean(saved && saved.revealed),
       isCorrect: saved ? saved.isCorrect : false,
       correctRate: saved ? saved.correctRate : 0,
       isStarred,
@@ -131,6 +169,14 @@ Page({
     });
     if (!saved || !saved.answered) {
       this._startTime = Date.now();
+    }
+    if (this.data.isMemorize) {
+      this.setData({
+        answered: true,
+        revealed: true,
+        correctAnswer: q.answer || '',
+        explanation: q.explanation || '',
+      });
     }
   },
 

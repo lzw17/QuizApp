@@ -1,0 +1,29 @@
+.container { min-height: 100vh; padding: 24rpx 24rpx 60rpx; box-sizing: border-box; }
+.summary { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20rpx; border-radius: 20rpx; }
+.summary-title { font-size: 34rpx; font-weight: 700; color: #222; }
+.summary-sub { font-size: 24rpx; color: #999; margin-top: 10rpx; }
+.streak-badge { min-width: 130rpx; padding: 16rpx; background: #EEF2FF; color: #4F7EFF; border-radius: 16rpx; text-align: center; }
+.streak-num { display: block; font-size: 42rpx; font-weight: 700; }
+.streak-label { display: block; font-size: 20rpx; margin-top: 4rpx; }
+.metric-row { display: flex; gap: 16rpx; margin-bottom: 20rpx; }
+.metric { flex: 1; padding: 24rpx 12rpx; text-align: center; border-radius: 16rpx; }
+.metric-value { display: block; color: #4F7EFF; font-size: 40rpx; font-weight: 700; }
+.metric-label { display: block; color: #999; font-size: 22rpx; margin-top: 6rpx; }
+.section { margin-bottom: 20rpx; border-radius: 20rpx; }
+.section-title { font-size: 30rpx; font-weight: 700; margin-bottom: 28rpx; }
+.chart { height: 260rpx; display: flex; align-items: flex-end; justify-content: space-around; gap: 8rpx; border-bottom: 2rpx solid #F0F0F0; }
+.chart-item { flex: 1; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
+.chart-value { color: #4F7EFF; font-size: 20rpx; min-height: 28rpx; }
+.bar-wrap { height: 190rpx; display: flex; align-items: flex-end; }
+.bar { width: 28rpx; min-height: 8rpx; border-radius: 10rpx 10rpx 0 0; background: linear-gradient(180deg, #4F7EFF, #83A4FF); }
+.chart-day { color: #777; font-size: 20rpx; margin-top: 10rpx; }
+.chart-rate { color: #18C971; font-size: 18rpx; margin-top: 4rpx; }
+.weak-item { display: flex; align-items: center; padding: 22rpx 0; border-bottom: 2rpx solid #F5F5F5; }
+.weak-item:last-child { border-bottom: none; }
+.weak-rank { width: 40rpx; height: 40rpx; line-height: 40rpx; border-radius: 50%; background: #FFF3E0; color: #F57C00; text-align: center; font-size: 22rpx; }
+.weak-name { flex: 1; color: #333; font-size: 28rpx; margin-left: 16rpx; }
+.weak-count { color: #FF4D4F; font-size: 24rpx; }
+.empty-inline { color: #AAA; font-size: 24rpx; padding: 14rpx 0 4rpx; }
+.loading-page { min-height: 60vh; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #999; gap: 20rpx; }
+.loading-dot { width: 64rpx; height: 64rpx; border: 6rpx solid #4F7EFF; border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

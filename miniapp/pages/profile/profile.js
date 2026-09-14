@@ -44,6 +44,8 @@ Page({
 
   goEditProfile() { wx.navigateTo({ url: '/pages/login/login?edit=1' }); },
   goWrongBook() { wx.switchTab({ url: '/pages/wrong-book/wrong-book' }); },
+  goReport() { wx.navigateTo({ url: '/pages/report/report' }); },
+  goPrivacy() { wx.navigateTo({ url: '/pages/privacy/privacy' }); },
   goUpload()    { wx.navigateTo({ url: '/pages/upload/upload' }); },
   goManage()    { wx.navigateTo({ url: '/pages/manage/manage' }); },
   logout() {
@@ -52,6 +54,23 @@ Page({
       content: '退出后，本机将清除登录状态，学习记录仍保留在账号中。',
       confirmText: '退出',
       success: res => { if (res.confirm) app.logout(); },
+    });
+  },
+  deleteAccount() {
+    wx.showModal({
+      title: '注销账号',
+      content: '注销后会清理作答记录、收藏和学习进度，且无法恢复。确定继续吗？',
+      confirmText: '确认注销',
+      confirmColor: '#FF4D4F',
+      success: async res => {
+        if (!res.confirm) return;
+        try {
+          await request({ url: '/api/auth/account', method: 'DELETE' });
+          app.clearSession();
+          wx.setStorageSync('manualLoginRequired', true);
+          wx.reLaunch({ url: '/pages/login/login' });
+        } catch {}
+      },
     });
   },
 });

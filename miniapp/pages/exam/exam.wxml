@@ -18,6 +18,19 @@
       <text class="rule-val">60 分</text>
     </view>
   </view>
+  <view class="filter-setting">
+    <view class="filter-title">组卷范围</view>
+    <scroll-view class="filter-scroll" scroll-x wx:if="{{tags.length}}">
+      <view class="filter-list">
+        <view class="filter-chip {{selectedTag === '' ? 'active' : ''}}" bindtap="setTag" data-tag="">全部知识点</view>
+        <view class="filter-chip {{selectedTag === item ? 'active' : ''}}" wx:for="{{tags}}" wx:key="*this" bindtap="setTag" data-tag="{{item}}">{{item}}</view>
+      </view>
+    </scroll-view>
+    <view class="difficulty-list">
+      <view class="difficulty-label">难度</view>
+      <view class="difficulty-chip {{difficulty === item ? 'active' : ''}}" wx:for="{{[1,2,3,4,5]}}" wx:key="*this" bindtap="setDifficulty" data-value="{{item}}">{{item}} 星</view>
+    </view>
+  </view>
   <view class="count-setting">
     <text class="cs-label">出题数量</text>
     <view class="num-control">

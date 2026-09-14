@@ -7,6 +7,8 @@ Page({
     categories: [],
     activeCategory: '',
     stats: {},
+    dailyQuestion: null,
+    dailyLoading: false,
     loading: false,
     userId: null,
     page: 0,
@@ -20,6 +22,7 @@ Page({
     this.setData({ statusBarHeight, userId: app.globalData.userId });
     this._loadBanks(true);
     this._loadStats();
+    this._loadDailyQuestion();
   },
 
   onShow() {
@@ -30,6 +33,7 @@ Page({
     // 每次显示刷新（上传完成后返回）
     this._loadBanks(true);
     this._loadStats();
+    this._loadDailyQuestion();
   },
 
   onPullDownRefresh() {
@@ -89,6 +93,24 @@ Page({
   goDetail(e) {
     const id = e.currentTarget.dataset.id;
     wx.navigateTo({ url: `/pages/bank-detail/bank-detail?id=${id}` });
+  },
+
+  async _loadDailyQuestion() {
+    try {
+      this.setData({ dailyLoading: true });
+      const daily = await request({ url: '/api/daily-question' });
+      this.setData({ dailyQuestion: daily, dailyLoading: false });
+    } catch {
+      this.setData({ dailyQuestion: null, dailyLoading: false });
+    }
+  },
+
+  startDaily() {
+    const daily = this.data.dailyQuestion;
+    if (!daily || !daily.question) return;
+    wx.navigateTo({
+      url: `/pages/practice/practice?bank_id=${daily.bank_id}&mode=daily&question_id=${daily.question.id}`,
+    });
   },
 
   deleteBank(e) {
