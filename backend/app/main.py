@@ -12,7 +12,7 @@ from .routers import upload, questions, practice, auth
 from .services.question_service import recover_stale_tasks
 
 app = FastAPI(
-    title="QuizApp API",
+    title=f"{settings.APP_NAME} API",
     description="微信刷题小程序后端服务",
     version="1.0.0",
     docs_url="/docs" if settings.DEBUG else None,

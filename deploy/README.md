@@ -11,9 +11,11 @@ WeChat legal domains before release, and replace every `<...>` placeholder.
 3. Create `/opt/quizapp/backend/.env` from `backend/.env.example` and set:
 
 ```env
+APP_NAME=智题学习笔记
 APP_ENV=production
 DEBUG=false
 SECRET_KEY=<openssl rand -hex 32>
+JWT_ISSUER=quizapp-api
 WX_APPID=<mini-program appid>
 WX_SECRET=<mini-program appsecret>
 WX_MOCK_LOGIN=false

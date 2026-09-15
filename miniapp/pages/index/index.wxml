@@ -4,7 +4,7 @@
   <view class="header" style="padding-top: {{statusBarHeight + 10}}px;">
     <image class="header-bg" src="/images/page/like.jpg" mode="aspectFill" />
     <view class="header-content">
-      <view class="header-title">智题宝</view>
+      <view class="header-title">智题学习笔记</view>
       <view class="header-sub">上传资料，AI 自动生成题库</view>
       <button class="btn-upload" bindtap="goUpload">
         <text class="icon">+</text> 导入新资料

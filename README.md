@@ -1,4 +1,4 @@
-# 智题宝 — AI 刷题微信小程序
+# 智题学习笔记 - AI 刷题微信小程序
 
 基于 DeepSeek + LangChain 自动从 PDF/Word/URL 生成题库，提供类驾考宝典的多模式刷题体验。
 
@@ -98,6 +98,8 @@ node miniapp/tests/app-auth.test.js
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
+| `APP_NAME` | 产品显示名称 | 智题学习笔记 |
+| `JWT_ISSUER` | 登录令牌签发者技术标识，部署后保持稳定 | quizapp-api |
 | `DEEPSEEK_API_KEY` | DeepSeek API Key（必填） | — |
 | `DATABASE_URL` | 数据库连接 | SQLite（开发） |
 | `MINERU_API_KEY` | MinerU PDF 解析（可选） | 无则用 PyPDF |

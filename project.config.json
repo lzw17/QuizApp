@@ -24,6 +24,7 @@
     "disableSWC": true
   },
   "compileType": "miniprogram",
+  "projectname": "智题学习笔记",
   "miniprogramRoot": "miniapp/",
   "simulatorPluginLibVersion": {},
   "packOptions": {

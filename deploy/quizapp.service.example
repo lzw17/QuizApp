@@ -1,5 +1,5 @@
 [Unit]
-Description=QuizApp FastAPI backend
+Description=智题学习笔记 FastAPI backend
 After=network.target mysql.service
 
 [Service]

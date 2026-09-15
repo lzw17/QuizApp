@@ -16,7 +16,7 @@
 #      journalctl -u quizapp -f
 
 [Unit]
-Description=QuizApp (智题学习笔记) FastAPI backend
+Description=智题学习笔记 FastAPI backend
 After=network.target mysql.service redis.service
 Wants=mysql.service
 

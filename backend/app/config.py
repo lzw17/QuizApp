@@ -5,9 +5,10 @@ import os
 
 
 class Settings(BaseSettings):
-    APP_NAME: str = "QuizApp"
+    APP_NAME: str = "智题学习笔记"
     APP_ENV: str = "development"
     SECRET_KEY: str = "dev-secret-key"
+    JWT_ISSUER: str = "quizapp-api"
     DEBUG: bool = True
 
     # 数据库 - 开发默认用 SQLite，生产换 MySQL
@@ -72,6 +73,8 @@ class Settings(BaseSettings):
 
     def validate_runtime_security(self) -> None:
         """Fail fast when production authentication is configured unsafely."""
+        if not self.APP_NAME.strip() or not self.JWT_ISSUER.strip():
+            raise RuntimeError("APP_NAME and JWT_ISSUER must not be empty")
         if self.MAX_FILE_SIZE_MB <= 0 or self.MAX_URL_CONTENT_MB <= 0:
             raise RuntimeError("Upload size limits must be positive")
         if self.TASK_STALE_MINUTES <= 0:

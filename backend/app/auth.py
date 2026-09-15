@@ -36,7 +36,7 @@ def create_access_token(user_id: int, token_version: int = 0) -> tuple[str, int]
         "sub": str(user_id),
         "iat": now,
         "exp": now + expires_in,
-        "iss": settings.APP_NAME,
+        "iss": settings.JWT_ISSUER,
         "type": "access",
         "ver": int(token_version),
     }
@@ -63,7 +63,7 @@ def _decode_access_token(token: str) -> tuple[int, int]:
         payload = json.loads(_b64decode(encoded_payload))
         if header.get("alg") != "HS256" or payload.get("type") != "access":
             raise ValueError("invalid token type")
-        if payload.get("iss") != settings.APP_NAME:
+        if payload.get("iss") != settings.JWT_ISSUER:
             raise ValueError("invalid issuer")
         if int(payload["exp"]) <= int(time.time()):
             raise ValueError("expired token")

@@ -1,7 +1,7 @@
 <view class="page">
   <view class="hero">
     <view class="hero-topline">
-      <text class="hero-kicker">QUIZAPP / AI STUDY</text>
+      <text class="hero-kicker">ZHI TI / STUDY NOTES</text>
       <text class="hero-status">轻量 · 专注 · 可追踪</text>
     </view>
 
@@ -10,7 +10,7 @@
         <image class="logo-img" src="/images/page/book.png" mode="aspectFit" />
       </view>
       <view class="brand-copy">
-        <text class="app-name">智题宝</text>
+        <text class="app-name">智题学习笔记</text>
         <text class="app-desc">让资料、练习与错题各就各位</text>
       </view>
     </view>
