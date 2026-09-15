@@ -26,7 +26,7 @@ User=quizapp
 Group=quizapp
 WorkingDirectory=/opt/quizapp/backend
 EnvironmentFile=/opt/quizapp/backend/.env
-ExecStart=/opt/quizapp/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+ExecStart=/opt/quizapp/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=always
 RestartSec=3
 # 安全加固

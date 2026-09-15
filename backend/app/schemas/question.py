@@ -17,9 +17,18 @@ class OptionItem(BaseModel):
 
 
 class QuestionBankCreate(BaseModel):
-    name: str
-    description: str = ""
-    category: str = ""
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=5000)
+    category: str = Field(default="", max_length=100)
+
+    @model_validator(mode="after")
+    def normalize(self):
+        self.name = self.name.strip()
+        self.description = self.description.strip()
+        self.category = self.category.strip()
+        if not self.name:
+            raise ValueError("bank name must not be empty")
+        return self
 
 
 class QuestionBankListItem(BaseModel):

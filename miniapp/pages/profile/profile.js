@@ -12,7 +12,6 @@ Page({
   onLoad() {
     const { statusBarHeight } = wx.getWindowInfo();
     this.setData({ statusBarHeight });
-    this._loadData();
   },
   onShow() {
     // 更新自定义 tabBar 选中状态
@@ -48,6 +47,24 @@ Page({
   goPrivacy() { wx.navigateTo({ url: '/pages/privacy/privacy' }); },
   goUpload()    { wx.navigateTo({ url: '/pages/upload/upload' }); },
   goManage()    { wx.navigateTo({ url: '/pages/manage/manage' }); },
+  clearCache() {
+    wx.showModal({
+      title: '清理缓存',
+      content: '仅清理本地题目和考试缓存，保留当前登录状态。',
+      confirmText: '清理',
+      success: res => {
+        if (!res.confirm) return;
+        const token = wx.getStorageSync('accessToken');
+        const userInfo = wx.getStorageSync('userInfo');
+        const manualLoginRequired = wx.getStorageSync('manualLoginRequired');
+        wx.clearStorageSync();
+        if (token) wx.setStorageSync('accessToken', token);
+        if (userInfo) wx.setStorageSync('userInfo', userInfo);
+        if (manualLoginRequired) wx.setStorageSync('manualLoginRequired', true);
+        wx.showToast({ title: '缓存已清理', icon: 'success' });
+      },
+    });
+  },
   logout() {
     wx.showModal({
       title: '退出登录',

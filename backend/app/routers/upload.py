@@ -31,6 +31,18 @@ router = APIRouter(prefix="/api", tags=["upload"])
 ALLOWED_EXTENSIONS = {".pdf", ".docx"}
 
 
+def _ensure_generation_capacity(db: Session, current_user: User) -> None:
+    """Limit concurrent AI jobs per user before accepting more input."""
+    active = db.query(GenerateTask.id).join(
+        QuestionBank, QuestionBank.id == GenerateTask.bank_id
+    ).filter(
+        QuestionBank.created_by == current_user.openid,
+        GenerateTask.status.in_(["pending", "running"]),
+    ).count()
+    if active >= settings.MAX_ACTIVE_GENERATION_TASKS:
+        raise HTTPException(429, "当前已有任务正在生成，请稍后再试")
+
+
 class UrlUploadRequest(BaseModel):
     url: str = Field(min_length=1, max_length=2048)
     bank_name: str = Field(default="", max_length=200)
@@ -85,6 +97,16 @@ async def _save_upload(file: UploadFile, save_path: str) -> None:
         raise
 
 
+def _validate_file_signature(save_path: str, source_type: str) -> None:
+    """Reject files whose content does not match the declared document type."""
+    with open(save_path, "rb") as source:
+        header = source.read(8)
+    if source_type == "pdf" and not header.startswith(b"%PDF-"):
+        raise HTTPException(400, "文件内容不是有效的 PDF")
+    if source_type == "word" and not header.startswith(b"PK"):
+        raise HTTPException(400, "文件内容不是有效的 DOCX")
+
+
 def _get_source_type(filename: str) -> str:
     ext = os.path.splitext(filename)[1].lower()
     if ext == ".pdf":
@@ -107,6 +129,7 @@ async def upload_file(
     db: Session = Depends(get_db),
 ):
     """上传 PDF/DOCX 文档，异步生成题库"""
+    _ensure_generation_capacity(db, current_user)
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(400, "不支持的文件类型，仅支持: .pdf, .docx")
@@ -117,6 +140,14 @@ async def upload_file(
     task_id = str(uuid.uuid4())
     save_path = os.path.join(settings.UPLOAD_DIR, f"{task_id}{ext}")
     await _save_upload(file, save_path)
+    try:
+        _validate_file_signature(save_path, source_type)
+    except Exception:
+        try:
+            os.remove(save_path)
+        except OSError:
+            pass
+        raise
 
     # 创建题库
     bank_data = QuestionBankCreate(
@@ -158,7 +189,8 @@ async def upload_url(
     db: Session = Depends(get_db),
 ):
     """提交 URL，爬取页面内容并生成题库"""
-    url = _validate_source_url(data.url)
+    _ensure_generation_capacity(db, current_user)
+    url = await asyncio.to_thread(_validate_source_url, data.url)
 
     task_id = str(uuid.uuid4())
 
@@ -201,6 +233,14 @@ def _get_owned_task(db: Session, task_id: str, current_user: User) -> GenerateTa
     return task
 
 
+def _public_task(task: GenerateTask) -> GenerateTaskOut:
+    """Serialize task status without exposing legacy/provider exception text."""
+    result = GenerateTaskOut.model_validate(task)
+    if result.status == "failed":
+        result.error = "生成失败，请更换资料或稍后重试"
+    return result
+
+
 @router.get("/task/{task_id}", response_model=GenerateTaskOut)
 def get_task(
     task_id: str,
@@ -208,7 +248,7 @@ def get_task(
     db: Session = Depends(get_db),
 ):
     """查询出题任务状态（轮询模式）"""
-    return _get_owned_task(db, task_id, current_user)
+    return _public_task(_get_owned_task(db, task_id, current_user))
 
 
 @router.get("/task/{task_id}/sse")
@@ -222,28 +262,44 @@ async def task_sse(
 
     _get_owned_task(db, task_id, current_user)
 
-    async def event_generator():
-        deadline = asyncio.get_running_loop().time() + max(60, settings.TASK_STALE_MINUTES * 60)
-        while True:
-            poll_db = SessionLocal()
-            try:
-                task = poll_db.query(GenerateTask).filter(GenerateTask.id == task_id).first()
-            finally:
-                poll_db.close()
+    def read_task_snapshot():
+        poll_db = SessionLocal()
+        try:
+            task = poll_db.query(GenerateTask).filter(GenerateTask.id == task_id).first()
             if not task:
-                yield f"data: {json.dumps({'error': '任务不存在'})}\n\n"
-                break
-
-            payload = {
+                return None
+            return {
                 "status": task.status,
                 "progress": task.progress,
                 "generated_count": task.generated_count,
                 "message": task.message,
                 "error": task.error,
             }
+        finally:
+            poll_db.close()
+
+    async def event_generator():
+        deadline = asyncio.get_running_loop().time() + max(60, settings.TASK_STALE_MINUTES * 60)
+        while True:
+            snapshot = await asyncio.to_thread(read_task_snapshot)
+            if not snapshot:
+                yield f"data: {json.dumps({'error': '任务不存在'})}\n\n"
+                break
+
+            payload = {
+                "status": snapshot["status"],
+                "progress": snapshot["progress"],
+                "generated_count": snapshot["generated_count"],
+                "message": snapshot["message"],
+                "error": (
+                    "生成失败，请更换资料或稍后重试"
+                    if snapshot["status"] == "failed"
+                    else snapshot["error"]
+                ),
+            }
             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
-            if task.status in ("done", "failed"):
+            if snapshot["status"] in ("done", "failed"):
                 break
 
             if asyncio.get_running_loop().time() >= deadline:

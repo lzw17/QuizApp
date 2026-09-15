@@ -10,6 +10,7 @@ DELETE /api/questions/{id}   删除题目（管理员）
 GET  /api/banks/{id}/tags    获取题库知识点标签列表
 """
 import os
+import random
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -169,10 +170,13 @@ def get_questions(
     difficulty: Optional[int] = Query(None, ge=1, le=5),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
+    seed: Optional[int] = Query(None, ge=0, le=2147483647),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     _get_visible_bank(db, bank_id, current_user)
+    if mode not in ("sequential", "random", "wrong", "starred"):
+        raise HTTPException(400, "不支持的题目模式")
 
     query = db.query(Question).filter(
         Question.bank_id == bank_id,
@@ -201,6 +205,12 @@ def get_questions(
         query = query.filter(Question.difficulty == difficulty)
 
     if mode == "random":
+        # A stable seed lets the mini program request later pages without
+        # reshuffling the first page and producing duplicates or gaps.
+        if seed is not None:
+            questions = query.order_by(Question.id).all()
+            random.Random(seed).shuffle(questions)
+            return questions[skip:skip + limit]
         query = query.order_by(sa_func.random())
     elif ordered_ids is not None:
         questions = query.all()

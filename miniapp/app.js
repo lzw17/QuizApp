@@ -25,7 +25,10 @@ App({
         });
       });
     }
-    const platform = wx.getSystemInfoSync().platform;
+    const deviceInfo = typeof wx.getDeviceInfo === 'function'
+      ? wx.getDeviceInfo()
+      : (typeof wx.getSystemInfoSync === 'function' ? wx.getSystemInfoSync() : {});
+    const platform = deviceInfo.platform || '';
     const accountInfo = wx.getAccountInfoSync ? wx.getAccountInfoSync() : {};
     const envVersion = (accountInfo.miniProgram && accountInfo.miniProgram.envVersion) || 'develop';
     if (envVersion === 'develop') {
@@ -180,6 +183,11 @@ App({
     this.globalData.profileRequired = false;
     wx.removeStorageSync('userInfo');
     wx.removeStorageSync('accessToken');
+    if (typeof wx.getStorageInfoSync === 'function') {
+      const storageInfo = wx.getStorageInfoSync();
+      (storageInfo.keys || []).filter(key => key.indexOf('exam-result-') === 0)
+        .forEach(key => wx.removeStorageSync(key));
+    }
   },
 
   logout() {

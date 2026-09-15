@@ -5,16 +5,17 @@ import uuid
 import asyncio
 import logging
 import os
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import List, Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, func as sa_func
+from sqlalchemy.orm import Session, aliased
+from sqlalchemy import and_, or_, func as sa_func
 from sqlalchemy.exc import IntegrityError
 
 from ..models.question import QuestionBank, Question, GenerateTask, TaskStatus, BankStatus
 from ..models.user import User, UserProgress, AnswerRecord
 from ..schemas.question import QuestionBankCreate, QuestionCreate
 from ..schemas.user import AnswerSubmit, AnswerResult
+from ..config import settings
 from ..services.doc_parser import parse_document, split_text_into_chunks
 from ..services.ai_engine import generate_questions_from_chunks, classify_questions_tags
 
@@ -25,13 +26,23 @@ class GenerationCancelled(Exception):
     pass
 
 
-def evaluate_answer(question: Question, raw_answer: str) -> tuple[str, bool]:
+def evaluate_answer(
+    question: Question,
+    raw_answer: str,
+    *,
+    allow_empty: bool = False,
+) -> tuple[str, bool]:
     """Normalize and validate one answer without writing any database records."""
     allowed_keys = {str(item.get("key", "")).strip().upper() for item in (question.options or [])}
     correct_answer = "".join(str(question.answer or "").split()).upper()
     user_answer = "".join(str(raw_answer or "").split()).upper()
     if not allowed_keys or not correct_answer:
         raise ValueError("题目选项或标准答案无效")
+    # An unanswered exam question is a valid submission and is simply wrong.
+    # Interactive practice still rejects empty answers so accidental taps do not
+    # create answer records.
+    if not user_answer and allow_empty:
+        return "", False
     if any(key not in allowed_keys for key in user_answer):
         raise ValueError("答案包含无效选项")
     if len(set(user_answer)) != len(user_answer):
@@ -132,22 +143,6 @@ def get_questions(
 
 def get_wrong_questions(db: Session, user_id: int, bank_id: Optional[int] = None) -> List[dict]:
     """获取用户错题，每道题只取最近一次错误记录"""
-    query = db.query(AnswerRecord).filter(
-        AnswerRecord.user_id == user_id,
-        AnswerRecord.is_correct == False,
-    )
-    if bank_id:
-        query = query.filter(AnswerRecord.bank_id == bank_id)
-
-    # 按题目去重，保留最新
-    records = query.order_by(AnswerRecord.answered_at.desc()).all()
-    seen = set()
-    unique = []
-    for r in records:
-        if r.question_id not in seen:
-            seen.add(r.question_id)
-            unique.append(r)
-
     latest = get_latest_answer_records(db, user_id, bank_id)
     unique = [record for record in latest.values() if not record.is_correct]
     unique.sort(key=lambda record: record.answered_at or datetime.min, reverse=True)
@@ -185,18 +180,35 @@ def get_latest_answer_records(
     user_id: int,
     bank_id: Optional[int] = None,
 ) -> dict[int, AnswerRecord]:
-    """Get the latest answer attempt for each question owned by a user."""
+    """Return only the latest attempt per question using a correlated query.
+
+    The previous implementation loaded every historical attempt into Python,
+    which becomes increasingly expensive for active users.  The database can
+    discard older attempts before the rows reach the application instead.
+    """
+    newer = aliased(AnswerRecord)
     query = db.query(AnswerRecord).filter(AnswerRecord.user_id == user_id)
     if bank_id:
         query = query.filter(AnswerRecord.bank_id == bank_id)
-    records = query.order_by(
+
+    newer_attempt = db.query(newer.id).filter(
+        newer.user_id == AnswerRecord.user_id,
+        newer.question_id == AnswerRecord.question_id,
+        or_(
+            newer.answered_at > AnswerRecord.answered_at,
+            and_(
+                newer.answered_at == AnswerRecord.answered_at,
+                newer.id > AnswerRecord.id,
+            ),
+        ),
+    )
+    if bank_id:
+        newer_attempt = newer_attempt.filter(newer.bank_id == bank_id)
+    query = query.filter(~newer_attempt.exists()).order_by(
         AnswerRecord.answered_at.desc(),
         AnswerRecord.id.desc(),
-    ).all()
-    latest: dict[int, AnswerRecord] = {}
-    for record in records:
-        latest.setdefault(record.question_id, record)
-    return latest
+    )
+    return {record.question_id: record for record in query.all()}
 
 
 def get_current_wrong_question_ids(
@@ -276,7 +288,14 @@ def get_starred_questions(db: Session, user_id: int, bank_id: int) -> List[Quest
 #  答题逻辑
 # ──────────────────────────────────────────
 
-def submit_answer(db: Session, data: AnswerSubmit, user_id: int) -> AnswerResult:
+def submit_answer(
+    db: Session,
+    data: AnswerSubmit,
+    user_id: int,
+    *,
+    commit: bool = True,
+) -> AnswerResult:
+    """Record one answer, optionally leaving the transaction open for a batch."""
     question = db.query(Question).join(QuestionBank).filter(
         Question.id == data.question_id,
         Question.bank_id == data.bank_id,
@@ -286,7 +305,11 @@ def submit_answer(db: Session, data: AnswerSubmit, user_id: int) -> AnswerResult
     if not question:
         raise ValueError("题目不存在或不属于该题库")
 
-    user_answer, is_correct = evaluate_answer(question, data.user_answer)
+    user_answer, is_correct = evaluate_answer(
+        question,
+        data.user_answer,
+        allow_empty=data.mode == "exam",
+    )
 
     # 写入答题记录
     record = AnswerRecord(
@@ -300,20 +323,32 @@ def submit_answer(db: Session, data: AnswerSubmit, user_id: int) -> AnswerResult
     )
     db.add(record)
 
-    # 更新题目正确率（滑动平均）
-    old_count = question.answer_count or 0
-    old_rate = question.correct_rate or 0.0
-    total = old_count + 1
-    question.correct_rate = (old_rate * old_count + (1 if is_correct else 0)) / total
-    question.answer_count = total
+    # Update aggregates atomically so concurrent answers cannot overwrite each
+    # other's counters.
+    old_count = sa_func.coalesce(Question.answer_count, 0)
+    old_rate = sa_func.coalesce(Question.correct_rate, 0.0)
+    db.query(Question).filter(Question.id == question.id).update(
+        {
+            Question.correct_rate: (old_rate * old_count + int(is_correct)) / (old_count + 1),
+            Question.answer_count: old_count + 1,
+        },
+        synchronize_session=False,
+    )
+    db.refresh(question)
 
     # 更新用户进度
     progress = _get_or_create_progress(db, user_id, data.bank_id)
-    progress.total_answered = (progress.total_answered or 0) + 1
-    if is_correct:
-        progress.correct_count = (progress.correct_count or 0) + 1
+    db.query(UserProgress).filter(UserProgress.id == progress.id).update(
+        {
+            UserProgress.total_answered: sa_func.coalesce(UserProgress.total_answered, 0) + 1,
+            UserProgress.correct_count: sa_func.coalesce(UserProgress.correct_count, 0) + int(is_correct),
+        },
+        synchronize_session=False,
+    )
+    db.refresh(progress)
 
-    db.commit()
+    if commit:
+        db.commit()
 
     return AnswerResult(
         is_correct=is_correct,
@@ -380,7 +415,7 @@ def get_user_stats(db: Session, user_id: int) -> dict:
     ).count()
 
     # 今日作答
-    today_start = datetime.combine(date.today(), datetime.min.time())
+    today_start = datetime.combine(datetime.utcnow().date(), datetime.min.time())
     today_answered = db.query(AnswerRecord).filter(
         AnswerRecord.user_id == user_id,
         AnswerRecord.answered_at >= today_start,
@@ -401,7 +436,7 @@ def get_user_stats(db: Session, user_id: int) -> dict:
         ).all()
     }
     streak_days = 0
-    cursor = date.today()
+    cursor = datetime.utcnow().date()
     while cursor in answered_days:
         streak_days += 1
         cursor -= timedelta(days=1)
@@ -488,6 +523,12 @@ async def run_generate_task(
 
         # 2. 分块
         chunks = split_text_into_chunks(text)
+        if not chunks:
+            raise ValueError("文档内容不足，无法生成题目")
+        if len(chunks) > settings.MAX_GENERATION_CHUNKS:
+            raise ValueError(
+                f"文档内容过长，最多支持 {settings.MAX_GENERATION_CHUNKS} 个文本分块"
+            )
         task.total_chunks = len(chunks)
         task.message = f"文档已分为 {len(chunks)} 个段落，开始出题..."
         db.commit()
@@ -510,8 +551,12 @@ async def run_generate_task(
             progress_callback=on_progress,
             num_direct=num_direct,
             num_logic=num_logic,
+            max_questions=settings.MAX_GENERATED_QUESTIONS,
         )
         ensure_bank_active()
+
+        if not questions:
+            raise ValueError("未能生成有效题目，请更换资料或稍后重试")
 
         # 5. 补全标签
         task.message = "正在整理知识点标签..."
@@ -558,8 +603,12 @@ async def run_generate_task(
         task = db.query(GenerateTask).filter(GenerateTask.id == task_id).first()
         if task:
             task.status = TaskStatus.failed
-            task.error = str(e)
+            # Keep provider paths, request IDs and SQL details in logs only.
+            task.error = "生成失败，请更换资料或稍后重试"
             task.message = "出题失败，请重试"
+            bank = db.query(QuestionBank).filter(QuestionBank.id == bank_id).first()
+            if bank and bank.status != BankStatus.deleted:
+                bank.status = BankStatus.deleted
             db.commit()
     finally:
         db.close()

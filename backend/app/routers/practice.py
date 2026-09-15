@@ -9,7 +9,7 @@ GET  /api/progress/{bank_id}  获取用户在该题库的进度
 GET  /api/stats               获取个人学习统计
 """
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -136,7 +136,11 @@ def submit_exam(
     normalized_answers = {}
     for item in data.answers:
         try:
-            normalized_answers[item.question_id] = evaluate_answer(by_id[item.question_id], item.user_answer)[0]
+            normalized_answers[item.question_id] = evaluate_answer(
+                by_id[item.question_id],
+                item.user_answer,
+                allow_empty=True,
+            )[0]
         except ValueError as exc:
             raise HTTPException(400, str(exc))
 
@@ -152,7 +156,7 @@ def submit_exam(
             mode="exam",
         )
         try:
-            result = submit_answer(db, submit, current_user.id)
+            result = submit_answer(db, submit, current_user.id, commit=False)
             question = db.query(Question).filter(Question.id == item.question_id).first()
             results.append(ExamResultItem(
                 question_id=item.question_id,
@@ -322,7 +326,7 @@ def get_daily_question(
     ).order_by(Question.order_index, Question.id).all()
     if not questions:
         raise HTTPException(404, "question bank is empty")
-    today = date.today()
+    today = datetime.utcnow().date()
     question = questions[int(today.strftime("%Y%m%d")) % len(questions)]
     today_start = datetime.combine(today, datetime.min.time())
     answered = db.query(AnswerRecord.id).filter(
@@ -346,7 +350,7 @@ def get_study_report(
     db: Session = Depends(get_db),
 ):
     """Return daily activity, accuracy trend and weak knowledge tags."""
-    today = date.today()
+    today = datetime.utcnow().date()
     start_date = today - timedelta(days=days - 1)
     start_at = datetime.combine(start_date, datetime.min.time())
     records = db.query(AnswerRecord).filter(

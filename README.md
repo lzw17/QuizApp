@@ -61,6 +61,19 @@ python run.py
 # → API 文档: http://127.0.0.1:8000/docs
 ```
 
+### 上线前本地验证
+
+从仓库根目录执行：
+
+```bash
+python -m unittest discover -s backend/tests -t . -v
+python -m compileall -q backend
+node miniapp/tests/app-auth.test.js
+```
+
+后端测试使用标准库 `unittest`，不依赖 pytest。生产环境必须使用
+`backend/.env.production.example` 配置真实微信、数据库、HTTPS 和 AI 密钥，不能复用本地 `.env`。
+
 ### 小程序
 
 1. 用微信开发者工具打开 `miniapp/` 目录

@@ -84,3 +84,13 @@
 .done-text, .fail-text { font-size: 30rpx; color: #333; text-align: center; }
 .go-btn { min-width: 320rpx; }
 .retry-btn { min-width: 320rpx; }
+.aigc-notice {
+  max-width: 560rpx;
+  padding: 14rpx 20rpx;
+  border-radius: 12rpx;
+  background: #fff8e6;
+  color: #8a6214;
+  font-size: 22rpx;
+  line-height: 1.5;
+  text-align: center;
+}

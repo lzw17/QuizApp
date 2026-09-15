@@ -34,7 +34,7 @@
         <view class="qe-content">{{item.content}}</view>
         <view class="qe-answer">答案：<text class="ans-text">{{item.answer}}</text></view>
         <view class="qe-actions">
-          <view class="qe-btn" bindtap="showEditForm" data-q="{{item}}">✏️ 编辑</view>
+          <view class="qe-btn" bindtap="showEditForm" data-index="{{index}}">✏️ 编辑</view>
           <view class="qe-btn danger" bindtap="deleteQuestion" data-id="{{item.id}}">🗑️ 删除</view>
         </view>
       </view>

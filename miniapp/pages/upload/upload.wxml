@@ -69,7 +69,7 @@
         placeholder="粘贴文章/文档链接，如 https://..."
         bindinput="onUrlInput"
         value="{{inputUrl}}"
-        type="url"
+        type="text"
       />
     </view>
   </view>
@@ -77,7 +77,7 @@
   <!-- 提交按钮 -->
   <view class="submit-area safe-bottom">
     <button class="btn-primary submit-btn" bindtap="submit" loading="{{submitting}}" disabled="{{submitting}}">
-      {{submitting ? 'AI 生成中...' : '开始生成题库'}}
+      {{submitting ? (uploadProgress > 0 ? '上传中 ' + uploadProgress + '%' : 'AI 生成中...') : '开始生成题库'}}
     </button>
   </view>
 </view>

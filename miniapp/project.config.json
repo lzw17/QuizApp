@@ -45,6 +45,7 @@
     "ignoreUploadUnusedFiles": false
   },
   "compileType": "miniprogram",
+  "miniprogramRoot": "./",
   "libVersion": "3.4.3",
   "appid": "wx0bf65ee014cf8924",
   "projectname": "QuizApp",

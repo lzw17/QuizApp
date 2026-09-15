@@ -11,6 +11,7 @@ Page({
     selectedFile: null,
     inputUrl: '',
     submitting: false,
+    uploadProgress: 0,
   },
 
   onNameInput(e)     { this.setData({ bankName: e.detail.value }); },
@@ -29,15 +30,20 @@ Page({
     wx.chooseMessageFile({
       count: 1,
       type: 'file',
-      extension: ['pdf', 'docx'],
+      extension: ['.pdf', '.docx'],
       success: (res) => {
         const file = res.tempFiles[0];
+        if (!file || file.size > 50 * 1024 * 1024) {
+          wx.showToast({ title: '文件不能超过 50MB', icon: 'none' });
+          return;
+        }
         const sizeMB = (file.size / 1024 / 1024).toFixed(1);
         this.setData({
           selectedFile: {
             path: file.path,
             name: file.name,
             size: `${sizeMB} MB`,
+            sizeBytes: file.size,
           },
             bankName: this.data.bankName || file.name.replace(/\.(pdf|docx)$/i, ''),
         });
@@ -71,6 +77,8 @@ Page({
           bank_category: bankCategory,
           num_direct: numDirect,
           num_logic: numLogic,
+        }, {
+          onProgress: progress => this.setData({ uploadProgress: progress.progress || 0 }),
         });
       } else {
         result = await request({
@@ -92,6 +100,8 @@ Page({
       });
     } catch (err) {
       this.setData({ submitting: false });
+    } finally {
+      this.setData({ uploadProgress: 0 });
     }
   },
 });

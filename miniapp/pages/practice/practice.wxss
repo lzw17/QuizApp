@@ -1,4 +1,14 @@
 .container { display: flex; flex-direction: column; min-height: 100vh; background: #F5F6FA; }
+.aigc-notice {
+  margin: 20rpx 24rpx 0;
+  padding: 12rpx 18rpx;
+  border-radius: 12rpx;
+  background: #fff8e6;
+  color: #8a6214;
+  font-size: 22rpx;
+  line-height: 1.5;
+  text-align: center;
+}
 
 /* 顶栏 */
 .top-bar {

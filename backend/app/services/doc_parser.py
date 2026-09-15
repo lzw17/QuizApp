@@ -3,6 +3,7 @@
 支持：PDF（优先 MinerU API，降级 PyPDF）、DOCX（python-docx）、URL（Jina Reader）
 """
 import os
+import asyncio
 import httpx
 import logging
 from typing import Optional
@@ -19,7 +20,7 @@ async def parse_document(file_path: str, source_type: str) -> str:
     if source_type == "pdf":
         return await parse_pdf(file_path)
     elif source_type == "word":
-        return parse_word(file_path)
+        return await asyncio.to_thread(parse_word, file_path)
     elif source_type == "url":
         return await parse_url(file_path)
     else:
@@ -37,7 +38,7 @@ async def parse_pdf(file_path: str) -> str:
             return await _parse_pdf_mineru(file_path)
         except Exception as e:
             logger.warning(f"MinerU 解析失败，降级到 PyPDF: {e}")
-    return _parse_pdf_local(file_path)
+    return await asyncio.to_thread(_parse_pdf_local, file_path)
 
 
 async def _parse_pdf_mineru(file_path: str) -> str:

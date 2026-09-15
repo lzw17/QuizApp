@@ -14,15 +14,19 @@ Page({
 
   onLoad(options) {
     if (options.bank_id) this.setData({ filterBankId: parseInt(options.bank_id) });
-    this._loadAll();
   },
 
   onShow() {
+    const pendingBankId = wx.getStorageSync('wrongBookFilterBankId');
+    if (pendingBankId) {
+      wx.removeStorageSync('wrongBookFilterBankId');
+      this.setData({ filterBankId: parseInt(pendingBankId) || '' });
+    }
     // 更新自定义 tabBar 选中状态
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({ selected: 1 });
     }
-    this._loadAll();
+    this._loadAll(pendingBankId ? (parseInt(pendingBankId) || '') : undefined);
   },
   onPullDownRefresh() { this._loadAll(); wx.stopPullDownRefresh(); },
 
@@ -37,20 +41,20 @@ Page({
     this._loadWrong();
   },
 
-  async _loadAll() {
+  async _loadAll(filterBankId) {
     await this._loadBanks();
-    await this._loadWrong();
+    await this._loadWrong(filterBankId);
     if (this.data.activeTab === 'star') {
-      await this._loadStars();
+      await this._loadStars(filterBankId);
     }
   },
 
-  async _loadWrong() {
+  async _loadWrong(filterBankId = this.data.filterBankId) {
     const uid = await getUserId();
     if (!uid) return;
     try {
       let url = '/api/wrong-questions';
-      if (this.data.filterBankId) url += `?bank_id=${this.data.filterBankId}`;
+      if (filterBankId) url += `?bank_id=${filterBankId}`;
       const list = await request({ url });
       this.setData({ wrongList: list.map(item => ({
         ...item,
@@ -59,11 +63,11 @@ Page({
     } catch {}
   },
 
-  async _loadStars() {
+  async _loadStars(filterBankId = this.data.filterBankId) {
     const uid = await getUserId();
     if (!uid) return;
     try {
-      const bankQuery = this.data.filterBankId ? `?bank_id=${this.data.filterBankId}` : '';
+      const bankQuery = filterBankId ? `?bank_id=${filterBankId}` : '';
       const starList = await request({ url: `/api/starred-questions${bankQuery}` });
       this.setData({ starList });
     } catch {}
@@ -89,6 +93,10 @@ Page({
   practiceWrong() {
     const { filterBankId, wrongList } = this.data;
     if (!wrongList.length) return;
+    if (!filterBankId && new Set(wrongList.map(item => item.bank_id)).size > 1) {
+      wx.showToast({ title: '请先选择题库', icon: 'none' });
+      return;
+    }
     const bankId = filterBankId || wrongList[0].bank_id;
     wx.navigateTo({ url: `/pages/practice/practice?bank_id=${bankId}&mode=wrong` });
   },
@@ -96,6 +104,10 @@ Page({
   memorizeWrong() {
     const { filterBankId, wrongList } = this.data;
     if (!wrongList.length) return;
+    if (!filterBankId && new Set(wrongList.map(item => item.bank_id)).size > 1) {
+      wx.showToast({ title: '请先选择题库', icon: 'none' });
+      return;
+    }
     const bankId = filterBankId || wrongList[0].bank_id;
     wx.navigateTo({ url: `/pages/practice/practice?bank_id=${bankId}&mode=memorize&source=wrong` });
   },
@@ -103,12 +115,20 @@ Page({
   practiceStar() {
     const { starList } = this.data;
     if (!starList.length) return;
+    if (new Set(starList.map(item => item.bank_id)).size > 1) {
+      wx.showToast({ title: '请先选择题库', icon: 'none' });
+      return;
+    }
     wx.navigateTo({ url: `/pages/practice/practice?bank_id=${starList[0].bank_id}&mode=starred` });
   },
 
   memorizeStar() {
     const { starList } = this.data;
     if (!starList.length) return;
+    if (new Set(starList.map(item => item.bank_id)).size > 1) {
+      wx.showToast({ title: '请先选择题库', icon: 'none' });
+      return;
+    }
     wx.navigateTo({ url: `/pages/practice/practice?bank_id=${starList[0].bank_id}&mode=memorize&source=starred` });
   },
 });

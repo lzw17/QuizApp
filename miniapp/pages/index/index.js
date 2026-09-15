@@ -17,12 +17,11 @@ Page({
     statusBarHeight: 0,
   },
 
+  _banksRequestId: 0,
+
   onLoad() {
     const { statusBarHeight } = wx.getWindowInfo();
     this.setData({ statusBarHeight, userId: app.globalData.userId });
-    this._loadBanks(true);
-    this._loadStats();
-    this._loadDailyQuestion();
   },
 
   onShow() {
@@ -48,13 +47,15 @@ Page({
   },
 
   async _loadBanks(reset) {
-    if (this.data.loading) return;
+    if (this.data.loading && !reset) return;
+    const requestId = ++this._banksRequestId;
     const skip = reset ? 0 : this.data.page * 20;
     this.setData({ loading: true });
     try {
       let query = `skip=${skip}&limit=20`;
       if (this.data.activeCategory) query += `&category=${encodeURIComponent(this.data.activeCategory)}`;
       const banks = await request({ url: `/api/banks?${query}` });
+      if (requestId !== this._banksRequestId) return;
       const merged = reset ? banks : [...this.data.banks, ...banks];
       // 收集分类
       const catSet = new Set(merged.map(b => b.category).filter(Boolean));
@@ -66,7 +67,7 @@ Page({
         loading: false,
       });
     } catch {
-      this.setData({ loading: false });
+      if (requestId === this._banksRequestId) this.setData({ loading: false });
     }
   },
 
@@ -82,8 +83,7 @@ Page({
 
   filterCategory(e) {
     const category = e.currentTarget.dataset.category;
-    this.setData({ activeCategory: category });
-    this._loadBanks(true);
+    this.setData({ activeCategory: category }, () => this._loadBanks(true));
   },
 
   goUpload() {

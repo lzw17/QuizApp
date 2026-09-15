@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     MAX_FILE_SIZE_MB: int = 50
     MAX_URL_CONTENT_MB: int = 10
     TASK_STALE_MINUTES: int = 60
+    MAX_GENERATION_CHUNKS: int = 100
+    MAX_GENERATED_QUESTIONS: int = 500
+    MAX_ACTIVE_GENERATION_TASKS: int = 2
 
     # CORS
     ALLOWED_ORIGINS: str = "*"
@@ -73,12 +76,18 @@ class Settings(BaseSettings):
             raise RuntimeError("Upload size limits must be positive")
         if self.TASK_STALE_MINUTES <= 0:
             raise RuntimeError("TASK_STALE_MINUTES must be positive")
+        if self.MAX_GENERATION_CHUNKS <= 0 or self.MAX_GENERATED_QUESTIONS <= 0:
+            raise RuntimeError("Generation limits must be positive")
+        if self.MAX_ACTIVE_GENERATION_TASKS <= 0:
+            raise RuntimeError("MAX_ACTIVE_GENERATION_TASKS must be positive")
         if self.APP_ENV.lower() not in ("prod", "production"):
             return
         if self.WX_MOCK_LOGIN:
             raise RuntimeError("WX_MOCK_LOGIN must be disabled in production")
         if not self.WX_APPID or not self.WX_SECRET:
             raise RuntimeError("WX_APPID and WX_SECRET are required in production")
+        if not self.DEEPSEEK_API_KEY:
+            raise RuntimeError("DEEPSEEK_API_KEY is required in production")
         if len(self.SECRET_KEY) < 32 or self.SECRET_KEY in (
             "dev-secret-key",
             "your-secret-key-change-in-production",

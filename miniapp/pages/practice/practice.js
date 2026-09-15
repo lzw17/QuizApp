@@ -37,6 +37,7 @@ Page({
   },
 
   _startTime: 0,
+  _randomSeed: null,
 
   onLoad(options) {
     const { bank_id, mode, tag, skip, source, question_id } = options;
@@ -54,6 +55,9 @@ Page({
       startSkip,
       modeLabel: modeLabels[mode] || '练习',
     });
+    this._randomSeed = mode === 'random'
+      ? Math.floor(Math.random() * 2147483647)
+      : null;
     this._loadQuestions(startSkip);
     this._loadProgress();
   },
@@ -93,6 +97,9 @@ Page({
       const mode = this.data.mode === 'tag' ? 'sequential' : this.data.mode;
       let query = `bank_id=${this.data.bankId}&mode=${mode}&skip=${skip}&limit=100`;
       let countQuery = `bank_id=${this.data.bankId}&mode=${mode}`;
+      if (mode === 'random' && this._randomSeed !== null) {
+        query += `&seed=${this._randomSeed}`;
+      }
       if (mode === 'wrong' || mode === 'starred') {
         const uid = await getUserId();
         if (!uid) {
@@ -299,6 +306,9 @@ Page({
   },
 
   restart() {
+    if (this.data.mode === 'random') {
+      this._randomSeed = Math.floor(Math.random() * 2147483647);
+    }
     this.setData({ done: false, sessionTotal: 0, sessionCorrect: 0, userAnswers: {}, correctAnswer: '', explanation: '' });
     this._loadQuestions(0);
   },

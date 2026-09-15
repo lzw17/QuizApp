@@ -5,7 +5,7 @@ import time
 import unittest
 import uuid
 from datetime import datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 
 DB_PATH = os.path.join(tempfile.gettempdir(), f"quiz_auth_{uuid.uuid4().hex}.db")
@@ -29,7 +29,11 @@ from backend.app.models.question import GenerateTask, Question, QuestionBank
 from backend.app.models.user import AnswerRecord, User, UserProgress
 from backend.app.routers.auth import _get_wechat_session
 from backend.app.schemas.question import QuestionCreate
-from backend.app.services.question_service import get_user_stats, recover_stale_tasks
+from backend.app.services.question_service import (
+    get_user_stats,
+    recover_stale_tasks,
+    run_generate_task,
+)
 
 
 class AuthFlowTest(unittest.TestCase):
@@ -256,6 +260,24 @@ class AuthFlowTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 401)
 
+    def test_upload_validation_rejects_bad_documents_and_private_urls(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        bad_file = self.client.post(
+            "/api/upload",
+            headers=headers,
+            files={"file": ("notes.pdf", b"not-a-pdf", "application/pdf")},
+            data={"bank_name": "invalid upload"},
+        )
+        self.assertEqual(bad_file.status_code, 400, bad_file.text)
+
+        private_url = self.client.post(
+            "/api/upload/url",
+            headers=headers,
+            json={"url": "http://127.0.0.1:8000/internal"},
+        )
+        self.assertEqual(private_url.status_code, 400, private_url.text)
+
     def test_expired_token_is_rejected(self):
         session = self.login()
         future = time.time() + session["expires_in"] + 1
@@ -279,6 +301,24 @@ class AuthFlowTest(unittest.TestCase):
         self.assertEqual(response.json()["nickname"], "测试用户")
         self.assertEqual(self.client.get("/api/stats", headers=headers).status_code, 200)
 
+    def test_profile_rejects_external_avatar_url(self):
+        session = self.login()
+        response = self.client.put(
+            "/api/auth/profile",
+            headers={"Authorization": f"Bearer {session['access_token']}"},
+            json={"nickname": "测试用户", "avatar": "https://example.com/avatar.png"},
+        )
+        self.assertEqual(response.status_code, 400, response.text)
+
+    def test_avatar_rejects_mismatched_file_signature(self):
+        session = self.login()
+        response = self.client.post(
+            "/api/auth/avatar",
+            headers={"Authorization": f"Bearer {session['access_token']}"},
+            files={"file": ("avatar.png", b"not-a-png", "image/png")},
+        )
+        self.assertEqual(response.status_code, 400, response.text)
+
     def test_non_admin_cannot_use_admin_api(self):
         session = self.login()
         response = self.client.get(
@@ -286,6 +326,40 @@ class AuthFlowTest(unittest.TestCase):
             headers={"Authorization": f"Bearer {session['access_token']}"},
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_admin_question_crud_returns_answers_only_to_admin(self):
+        with patch("backend.app.routers.auth.settings.ADMIN_OPENIDS", "mock_auth-test-user"):
+            session = self.login()
+            headers = {"Authorization": f"Bearer {session['access_token']}"}
+            bank_id, question_id = self.create_bank()
+
+            listed = self.client.get(
+                f"/api/admin/questions?bank_id={bank_id}", headers=headers
+            )
+            self.assertEqual(listed.status_code, 200, listed.text)
+            self.assertEqual(listed.json()[0]["answer"], "A")
+
+            updated = self.client.put(
+                f"/api/questions/{question_id}",
+                headers=headers,
+                json={
+                    "bank_id": bank_id,
+                    "type": "single",
+                    "content": "updated question",
+                    "options": [{"key": "A", "text": "answer"}],
+                    "answer": "A",
+                    "explanation": "updated",
+                    "tags": ["admin"],
+                    "difficulty": 3,
+                },
+            )
+            self.assertEqual(updated.status_code, 200, updated.text)
+            self.assertEqual(updated.json()["content"], "updated question")
+
+            deleted = self.client.delete(
+                f"/api/questions/{question_id}", headers=headers
+            )
+            self.assertEqual(deleted.status_code, 200, deleted.text)
 
     def test_practice_payload_cannot_cross_question_banks(self):
         session = self.login()
@@ -333,6 +407,11 @@ class AuthFlowTest(unittest.TestCase):
         )
         self.assertEqual(duplicate.status_code, 400, duplicate.text)
 
+        invalid_mode = self.client.get(
+            f"/api/questions?bank_id={bank_id}&mode=unsupported", headers=headers
+        )
+        self.assertEqual(invalid_mode.status_code, 400, invalid_mode.text)
+
     def test_exam_session_requires_complete_unique_submission(self):
         session = self.login()
         headers = {"Authorization": f"Bearer {session['access_token']}"}
@@ -375,6 +454,45 @@ class AuthFlowTest(unittest.TestCase):
             },
         )
         self.assertEqual(again.status_code, 409, again.text)
+
+    def test_exam_accepts_unanswered_questions_as_wrong(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        bank_id, question_id = self.create_bank()
+
+        started = self.client.post(
+            "/api/exam/start",
+            headers=headers,
+            json={"bank_id": bank_id, "question_count": 1},
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        payload = started.json()
+        submitted = self.client.post(
+            "/api/exam/submit",
+            headers=headers,
+            json={
+                "session_id": payload["session_id"],
+                "bank_id": bank_id,
+                "answers": [{"question_id": question_id, "user_answer": ""}],
+            },
+        )
+        self.assertEqual(submitted.status_code, 200, submitted.text)
+        self.assertEqual(submitted.json()["wrong"], 1)
+        self.assertEqual(submitted.json()["results"][0]["user_answer"], "")
+        db = SessionLocal()
+        try:
+            db.query(AnswerRecord).filter(
+                AnswerRecord.user_id == session["user"]["id"],
+                AnswerRecord.bank_id == bank_id,
+            ).delete(synchronize_session=False)
+            db.query(UserProgress).filter(
+                UserProgress.user_id == session["user"]["id"],
+                UserProgress.bank_id == bank_id,
+            ).delete(synchronize_session=False)
+            db.get(QuestionBank, bank_id).status = "deleted"
+            db.commit()
+        finally:
+            db.close()
 
     def test_bank_tags_require_authentication(self):
         bank_id, _ = self.create_bank()
@@ -536,6 +654,59 @@ class AuthFlowTest(unittest.TestCase):
             0,
         )
 
+    def test_random_seed_pagination_is_stable_without_duplicates(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        db = SessionLocal()
+        try:
+            bank = QuestionBank(
+                name=f"random-{uuid.uuid4().hex[:8]}",
+                status="ready",
+                created_by="mock_auth-test-user",
+            )
+            db.add(bank)
+            db.flush()
+            db.add_all([
+                Question(
+                    bank_id=bank.id,
+                    type="single",
+                    content=f"random question {index}",
+                    options=[{"key": "A", "text": "answer"}],
+                    answer="A",
+                    order_index=index,
+                )
+                for index in range(150)
+            ])
+            db.commit()
+            bank_id = bank.id
+        finally:
+            db.close()
+
+        first = self.client.get(
+            "/api/questions",
+            params={"bank_id": bank_id, "mode": "random", "skip": 0, "limit": 100, "seed": 42},
+            headers=headers,
+        )
+        second = self.client.get(
+            "/api/questions",
+            params={"bank_id": bank_id, "mode": "random", "skip": 100, "limit": 100, "seed": 42},
+            headers=headers,
+        )
+        repeat = self.client.get(
+            "/api/questions",
+            params={"bank_id": bank_id, "mode": "random", "skip": 0, "limit": 100, "seed": 42},
+            headers=headers,
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(repeat.status_code, 200, repeat.text)
+        first_ids = [item["id"] for item in first.json()]
+        second_ids = [item["id"] for item in second.json()]
+        self.assertEqual(len(first_ids), 100)
+        self.assertEqual(len(second_ids), 50)
+        self.assertEqual(len(set(first_ids + second_ids)), 150)
+        self.assertEqual(first_ids, [item["id"] for item in repeat.json()])
+
     def test_daily_question_and_study_report_hide_answer(self):
         session = self.login()
         headers = {"Authorization": f"Bearer {session['access_token']}"}
@@ -626,6 +797,60 @@ class AuthFlowTest(unittest.TestCase):
     def test_user_progress_unique_constraint_is_declared(self):
         constraints = UserProgress.__table__.constraints
         self.assertIn("uq_user_progress_user_bank", {c.name for c in constraints})
+
+    def test_generation_with_no_valid_questions_is_failed_and_hidden(self):
+        session = self.login()
+        bank_id, _ = self.create_bank(created_by="mock_auth-test-user")
+        db = SessionLocal()
+        try:
+            bank = db.get(QuestionBank, bank_id)
+            bank.status = "pending"
+            db.query(Question).filter(Question.bank_id == bank_id).delete(
+                synchronize_session=False
+            )
+            task_id = uuid.uuid4().hex
+            db.add(GenerateTask(
+                id=task_id,
+                bank_id=bank_id,
+                status="pending",
+                message="queued",
+            ))
+            db.commit()
+        finally:
+            db.close()
+
+        async def parsed_document(*args, **kwargs):
+            return "This document has enough text to be split into a valid source chunk."
+
+        with (
+            patch(
+                "backend.app.services.question_service.parse_document",
+                new=parsed_document,
+            ),
+            patch(
+                "backend.app.services.question_service.generate_questions_from_chunks",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            asyncio.run(
+                run_generate_task(
+                    task_id=task_id,
+                    bank_id=bank_id,
+                    file_path="https://example.com/source",
+                    source_type="url",
+                    db_factory=SessionLocal,
+                )
+            )
+
+        db = SessionLocal()
+        try:
+            task = db.get(GenerateTask, task_id)
+            bank = db.get(QuestionBank, bank_id)
+            self.assertEqual(task.status, "failed")
+            self.assertEqual(task.error, "生成失败，请更换资料或稍后重试")
+            self.assertEqual(bank.status, "deleted")
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":

@@ -94,6 +94,11 @@
       <text class="sc-arrow">›</text>
     </view>
     <view class="shortcut-divider"></view>
+    <view class="shortcut-item" bindtap="clearCache">
+      <text class="sc-label">清理本地缓存</text>
+      <text class="sc-arrow">›</text>
+    </view>
+    <view class="shortcut-divider"></view>
     <view class="shortcut-item" bindtap="logout">
       <text class="sc-label logout-label">退出登录</text>
       <text class="sc-arrow">›</text>

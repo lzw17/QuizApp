@@ -6,9 +6,12 @@ POST /api/auth/avatar         上传头像图片
 PUT  /api/auth/profile        更新昵称/头像 URL
 """
 import os
+import re
 import uuid
+import logging
 from datetime import datetime
 from typing import Optional
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
@@ -18,12 +21,13 @@ from sqlalchemy.orm import Session
 
 from ..auth import create_access_token, get_current_user
 from ..database import get_db
-from ..models.question import ExamSession, QuestionBank
+from ..models.question import ExamSession, GenerateTask, QuestionBank, TaskStatus
 from ..models.user import AnswerRecord, User, UserProgress
 from ..schemas.user import UserOut
 from ..config import settings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 WX_CODE2SESSION_URL = "https://api.weixin.qq.com/sns/jscode2session"
 
@@ -134,6 +138,10 @@ def delete_account(
 ):
     """Anonymize and disable an account, then revoke every active token."""
     old_openid = current_user.openid
+    old_avatar = current_user.avatar or ""
+    owned_bank_ids = [bank_id for (bank_id,) in db.query(QuestionBank.id).filter(
+        QuestionBank.created_by == old_openid
+    ).all()]
     db.query(AnswerRecord).filter(AnswerRecord.user_id == current_user.id).delete(
         synchronize_session=False
     )
@@ -146,6 +154,18 @@ def delete_account(
     db.query(QuestionBank).filter(QuestionBank.created_by == old_openid).update(
         {QuestionBank.created_by: ""}, synchronize_session=False
     )
+    if owned_bank_ids:
+        db.query(GenerateTask).filter(
+            GenerateTask.bank_id.in_(owned_bank_ids),
+            GenerateTask.status.in_([TaskStatus.pending, TaskStatus.running]),
+        ).update(
+            {
+                GenerateTask.status: TaskStatus.failed,
+                GenerateTask.message: "账号已注销，生成任务已终止",
+                GenerateTask.error: "account deleted",
+            },
+            synchronize_session=False,
+        )
     current_user.openid = f"deleted_{uuid.uuid4().hex}"
     current_user.nickname = ""
     current_user.avatar = ""
@@ -153,7 +173,38 @@ def delete_account(
     current_user.is_active = False
     current_user.token_version = (current_user.token_version or 0) + 1
     db.commit()
+    _remove_owned_avatar(old_avatar)
     return {"message": "Account deleted"}
+
+
+def _remove_owned_avatar(avatar_url: str) -> None:
+    """Delete only files inside the configured avatar directory."""
+    if not avatar_url:
+        return
+    parsed = urlparse(avatar_url)
+    configured_base = settings.PUBLIC_BASE_URL.strip().rstrip("/")
+    if configured_base:
+        base = urlparse(configured_base)
+        if parsed.scheme != base.scheme or parsed.netloc != base.netloc:
+            return
+    elif parsed.scheme or parsed.netloc:
+        return
+    prefix = "/uploads/avatars/"
+    if not parsed.path.startswith(prefix):
+        return
+    filename = parsed.path[len(prefix):]
+    if not re.fullmatch(r"[0-9a-f]{32}\.(?:jpg|jpeg|png|webp|gif)", filename):
+        return
+    avatar_dir = os.path.realpath(os.path.join(settings.UPLOAD_DIR, "avatars"))
+    candidate = os.path.realpath(os.path.join(avatar_dir, filename))
+    if os.path.dirname(candidate) != avatar_dir:
+        return
+    try:
+        os.remove(candidate)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        logger.warning("无法清理头像文件 %s", candidate, exc_info=True)
 
 
 @router.post("/avatar")
@@ -174,6 +225,8 @@ async def upload_avatar(
     content = await file.read(max_size + 1)
     if len(content) > max_size:
         raise HTTPException(400, "头像文件不能超过 5MB")
+    if not _valid_image_signature(content, ext):
+        raise HTTPException(400, "头像文件内容无效")
 
     avatar_dir = os.path.join(settings.UPLOAD_DIR, "avatars")
     os.makedirs(avatar_dir, exist_ok=True)
@@ -185,11 +238,24 @@ async def upload_avatar(
     base = settings.PUBLIC_BASE_URL.strip().rstrip("/") or str(request.base_url).rstrip("/")
     full_url = f"{base}/uploads/avatars/{filename}"
 
+    old_avatar = current_user.avatar or ""
     current_user.avatar = full_url
     db.commit()
     db.refresh(current_user)
+    _remove_owned_avatar(old_avatar)
 
     return {"avatar_url": full_url}
+
+
+def _valid_image_signature(content: bytes, ext: str) -> bool:
+    signatures = {
+        ".jpg": content.startswith(b"\xff\xd8\xff"),
+        ".jpeg": content.startswith(b"\xff\xd8\xff"),
+        ".png": content.startswith(b"\x89PNG\r\n\x1a\n"),
+        ".gif": content.startswith((b"GIF87a", b"GIF89a")),
+        ".webp": content.startswith(b"RIFF") and content[8:12] == b"WEBP",
+    }
+    return signatures.get(ext, False)
 
 
 class ProfileUpdate(BaseModel):
@@ -207,7 +273,25 @@ def update_profile(
     nickname = data.nickname.strip()
     if nickname:
         current_user.nickname = nickname
-    if data.avatar:
+    if data.avatar and data.avatar != (current_user.avatar or ""):
+        parsed = urlparse(data.avatar)
+        configured_base = settings.PUBLIC_BASE_URL.strip().rstrip("/")
+        expected_path = "/uploads/avatars/"
+        if configured_base:
+            base = urlparse(configured_base)
+            valid_avatar = (
+                parsed.scheme == base.scheme
+                and parsed.netloc == base.netloc
+                and parsed.path.startswith(expected_path)
+            )
+        else:
+            valid_avatar = (
+                not parsed.scheme
+                and not parsed.netloc
+                and parsed.path.startswith(expected_path)
+            )
+        if not valid_avatar:
+            raise HTTPException(400, "头像地址无效")
         current_user.avatar = data.avatar
     db.commit()
     db.refresh(current_user)

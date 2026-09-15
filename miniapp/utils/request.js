@@ -27,6 +27,7 @@ function _request(options, retried) {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(options.header || {}),
       },
+      timeout: options.timeout || 15000,
       success(res) {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           resolve(res.data);
@@ -37,12 +38,12 @@ function _request(options, retried) {
           reject(new Error('登录已失效，请重新登录'));
         } else {
           const msg = (res.data && res.data.detail) || `请求失败 (${res.statusCode})`;
-          wx.showToast({ title: msg, icon: 'none' });
+          if (!options.silent) wx.showToast({ title: msg, icon: 'none' });
           reject(new Error(msg));
         }
       },
       fail(err) {
-        wx.showToast({ title: '网络错误，请检查连接', icon: 'none' });
+        if (!options.silent) wx.showToast({ title: '网络错误，请检查连接', icon: 'none' });
         reject(err);
       },
     });
@@ -65,12 +66,13 @@ function uploadFile(filePath, formData = {}, options = {}) {
 function _uploadFile(filePath, formData, options, retried) {
   const token = app.globalData.accessToken;
   return new Promise((resolve, reject) => {
-    wx.uploadFile({
+    const uploadTask = wx.uploadFile({
       url: `${app.globalData.baseUrl}${options.url || '/api/upload'}`,
       filePath,
       name: options.name || 'file',
       formData,
       header: token ? { Authorization: `Bearer ${token}` } : {},
+      timeout: options.timeout || 120000,
       success(res) {
         let data;
         try {
@@ -98,6 +100,9 @@ function _uploadFile(filePath, formData, options, retried) {
         reject(error);
       },
     });
+    if (options.onProgress && uploadTask && uploadTask.onProgressUpdate) {
+      uploadTask.onProgressUpdate(options.onProgress);
+    }
   });
 }
 
@@ -116,7 +121,7 @@ function pollTask(taskId, onProgress, onDone, onError) {
       onError && onError('任务等待超时，请稍后在题库列表查看');
       return;
     }
-    request({ url: `/api/task/${taskId}` }).then(data => {
+    request({ url: `/api/task/${taskId}`, silent: true }).then(data => {
       if (stopped) return;
       onProgress && onProgress(data);
       if (data.status === 'done') {

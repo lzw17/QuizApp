@@ -22,6 +22,10 @@ env/
 # 环境变量（含密钥，不入库）
 backend/.env
 
+# TLS certificate material and ACME challenge files
+deploy/certs/
+deploy/certbot-webroot/
+
 # 上传文件目录
 backend/uploads/
 

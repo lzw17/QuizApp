@@ -1,0 +1,11 @@
+# First-certificate override. Run together with docker-compose.yml, then
+# restore the normal compose file after certbot has created the certificate.
+services:
+  nginx:
+    # Compose v2.24+ replaces the base port list so 443 is not opened before
+    # certificate files exist.
+    ports: !override
+      - "80:80"
+    volumes:
+      - ./nginx/quizapp-bootstrap.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certbot-webroot:/var/www/certbot:ro

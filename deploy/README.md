@@ -34,7 +34,22 @@ DEEPSEEK_API_KEY=<deepseek key>
    the service. `create_all()` creates missing tables but does not alter existing
    production tables.
 5. Install `quizapp.service` as a systemd unit and start it.
-6. Install `nginx/quizapp.conf`, issue an HTTPS certificate, and reload Nginx.
+6. For the Docker layout (Docker Compose v2.24+), the normal Nginx config expects an existing certificate
+   in `deploy/certs/`. On a new host, first create the ACME webroot and start the
+   HTTP-only bootstrap config:
+
+```bash
+mkdir -p deploy/certbot-webroot deploy/certs
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.bootstrap.yml up -d --build
+certbot certonly --webroot -w deploy/certbot-webroot -d api.quizapp.chat
+cp /etc/letsencrypt/live/api.quizapp.chat/fullchain.pem deploy/certs/api.quizapp.chat.pem
+cp /etc/letsencrypt/live/api.quizapp.chat/privkey.pem deploy/certs/api.quizapp.chat.key
+docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.bootstrap.yml down
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+   Renew the certificate before expiry and reload the Nginx container. Do not
+   start the normal compose file before both certificate files exist.
 
 The current worker uses FastAPI `BackgroundTasks`, so run one Uvicorn worker until
 AI generation is moved to a durable Redis/Celery/RQ worker. Do not use `run.py`

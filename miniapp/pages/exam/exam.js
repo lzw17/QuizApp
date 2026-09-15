@@ -92,10 +92,12 @@ Page({
   },
 
   _startTimer() {
+    this._clearTimer();
     this._timer = setInterval(() => {
       const left = this.data.timeLeft - 1;
       if (left <= 0) {
         this._clearTimer();
+        this.setData({ timeLeft: 0 });
         wx.showModal({ title: '时间到！', content: '考试时间已结束，自动交卷', showCancel: false,
           success: () => this._doSubmit(),
         });
@@ -169,6 +171,7 @@ Page({
     try {
       const uid = await getUserId();
       if (!uid) {
+        if (this.data.phase === 'exam' && this.data.timeLeft > 0) this._startTimer();
         wx.showToast({ title: '登录失败，请重试', icon: 'none' });
         return;
       }
@@ -194,6 +197,10 @@ Page({
         url: `/pages/result/result?result_key=${encodeURIComponent(resultKey)}&bank_id=${this.data.bankId}&bank_name=${encodeURIComponent(this.data.bankName)}`,
       });
     } catch {
+      if (this.data.phase === 'exam' && this.data.timeLeft > 0) {
+        this._startTimer();
+      }
+      wx.showToast({ title: '提交失败，请重试', icon: 'none' });
     } finally {
       this.setData({ submitting: false });
       wx.hideLoading();

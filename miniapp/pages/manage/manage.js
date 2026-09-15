@@ -11,7 +11,7 @@ Page({
     typeLabel: { single: '单选', multi: '多选', judge: '判断' },
   },
 
-  onLoad()  { this._loadBanks(); },
+  onLoad()  {},
   onShow()  { this._loadBanks(); },
 
   async _loadBanks() {
@@ -33,8 +33,9 @@ Page({
   closeModal() { this.setData({ editingBankId: null, editQuestions: [] }); },
 
   showEditForm(e) {
-    const q = e.currentTarget.dataset.q;
-    this.setData({ editForm: { ...q } });
+    const index = Number(e.currentTarget.dataset.index);
+    const q = this.data.editQuestions[index];
+    if (q) this.setData({ editForm: { ...q } });
   },
 
   closeForm() { this.setData({ editForm: null }); },

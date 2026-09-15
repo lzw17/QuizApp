@@ -1,10 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 import os
 
 from .config import settings
-from .database import create_tables, SessionLocal
+from .database import create_tables, SessionLocal, engine
 from .routers import upload, questions, practice, auth
 from .services.question_service import recover_stale_tasks
 
@@ -14,6 +17,7 @@ app = FastAPI(
     version="1.0.0",
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None,
+    openapi_url="/openapi.json" if settings.DEBUG else None,
 )
 
 # CORS（微信小程序需要）
@@ -50,4 +54,13 @@ async def startup():
 
 @app.get("/health")
 def health():
+    """Report service health only when the application database is reachable."""
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "degraded", "app": settings.APP_NAME},
+        )
     return {"status": "ok", "app": settings.APP_NAME}

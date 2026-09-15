@@ -41,8 +41,9 @@ Page({
   goBack() { wx.navigateBack({ delta: 1 }); },
 
   reviewWrong() {
-    wx.navigateTo({
-      url: `/pages/wrong-book/wrong-book?bank_id=${this.data.bankId}`,
-    });
+    if (this.data.bankId) {
+      wx.setStorageSync('wrongBookFilterBankId', this.data.bankId);
+    }
+    wx.switchTab({ url: '/pages/wrong-book/wrong-book' });
   },
 });

@@ -27,6 +27,8 @@ def get_llm(temperature: float = 0.7) -> ChatOpenAI:
         openai_api_base=settings.DEEPSEEK_BASE_URL,
         temperature=temperature,
         max_tokens=4096,
+        timeout=60.0,
+        max_retries=2,
     )
 
 
@@ -197,6 +199,7 @@ async def generate_questions_from_chunks(
     progress_callback: Optional[Callable[[int, int, int, str], Awaitable[None]]] = None,
     num_direct: int = 3,
     num_logic: int = 2,
+    max_questions: Optional[int] = None,
 ) -> List[dict]:
     """
     对所有分块逐一出题，带进度回调
@@ -206,6 +209,8 @@ async def generate_questions_from_chunks(
     total = len(chunks)
 
     for i, chunk in enumerate(chunks):
+        if max_questions is not None and len(all_questions) >= max_questions:
+            break
         try:
             questions = await generate_from_chunk(
                 chunk=chunk,
@@ -214,6 +219,8 @@ async def generate_questions_from_chunks(
                 num_direct=num_direct,
                 num_logic=num_logic,
             )
+            if max_questions is not None:
+                questions = questions[: max(0, max_questions - len(all_questions))]
             all_questions.extend(questions)
         except Exception as e:
             logger.warning(f"第 {i+1} 块出题失败: {e}")
@@ -262,10 +269,13 @@ async def classify_questions_tags(questions: List[dict]) -> List[dict]:
 """
     try:
         raw = await llm.ainvoke(prompt)
-        tag_list = json.loads(raw.content.strip())
+        # Reuse the tolerant parser so fenced JSON responses do not silently
+        # discard otherwise valid tag classifications.
+        tag_list = _parse_llm_output(raw.content)
         for i, q in enumerate(needs_tag):
             if i < len(tag_list):
-                q["tags"] = tag_list[i] if isinstance(tag_list[i], list) else [str(tag_list[i])]
+                tags = tag_list[i] if isinstance(tag_list[i], list) else [tag_list[i]]
+                q["tags"] = [str(tag).strip() for tag in tags if str(tag).strip()][:3]
     except Exception as e:
         logger.warning(f"标签分类失败: {e}")
 
