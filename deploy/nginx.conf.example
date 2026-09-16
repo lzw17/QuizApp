@@ -11,7 +11,8 @@ server {
     ssl_certificate /etc/letsencrypt/live/api.quizapp.chat/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/api.quizapp.chat/privkey.pem;
 
-    client_max_body_size 50m;
+    # 50MB 文件还包含 multipart 开销，需预留余量。
+    client_max_body_size 60m;
 
     location / {
         proxy_pass http://127.0.0.1:8000;

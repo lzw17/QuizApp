@@ -1,6 +1,6 @@
 <wxs src="../../utils/format.wxs" module="fmt" />
 <view class="container" wx:if="{{question}}">
-  <view class="aigc-notice">题目可能由 AI 生成，仅供学习参考，请结合原始资料核对。</view>
+  <view class="aigc-notice">AI 生成 · 仅供参考，请结合原始资料核对</view>
   <!-- 顶栏 -->
   <view class="top-bar">
     <view class="progress-info">

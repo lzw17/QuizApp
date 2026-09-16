@@ -41,13 +41,14 @@ Page({
 
   onLoad(options) {
     const { bank_id, mode, tag, skip, source, question_id } = options;
+    const parsedBankId = parseInt(bank_id, 10);
     const modeLabels = { sequential: '顺序练习', random: '随机练习', tag: `「${decodeURIComponent(tag || '')}」`, wrong: '错题复习', starred: '收藏练习' };
     const startSkip = parseInt(skip) || 0;
     modeLabels.memorize = '背题模式';
     modeLabels.daily = '每日一题';
     this.setData({
-      bankId: parseInt(bank_id),
-      mode,
+      bankId: Number.isFinite(parsedBankId) ? parsedBankId : null,
+      mode: mode || 'sequential',
       source: source || 'wrong',
       questionId: question_id ? parseInt(question_id) : null,
       isMemorize: mode === 'memorize',
@@ -67,8 +68,9 @@ Page({
     this.setData(append ? { loadingMore: true } : { loading: true, startSkip: skip });
     try {
       if (this.data.mode === 'memorize') {
+        const bankQuery = this.data.bankId ? `&bank_id=${this.data.bankId}` : '';
         const list = await request({
-          url: `/api/review-questions?bank_id=${this.data.bankId}&source=${this.data.source}`,
+          url: `/api/review-questions?source=${this.data.source}${bankQuery}`,
         });
         this.setData({
           questions: list,
@@ -95,8 +97,9 @@ Page({
         return;
       }
       const mode = this.data.mode === 'tag' ? 'sequential' : this.data.mode;
-      let query = `bank_id=${this.data.bankId}&mode=${mode}&skip=${skip}&limit=100`;
-      let countQuery = `bank_id=${this.data.bankId}&mode=${mode}`;
+      const bankQuery = this.data.bankId ? `bank_id=${this.data.bankId}&` : '';
+      let query = `${bankQuery}mode=${mode}&skip=${skip}&limit=100`;
+      let countQuery = `${bankQuery}mode=${mode}`;
       if (mode === 'random' && this._randomSeed !== null) {
         query += `&seed=${this._randomSeed}`;
       }
@@ -139,6 +142,15 @@ Page({
     const uid = await getUserId();
     if (!uid) return;
     try {
+      if (!this.data.bankId) {
+        const starred = await request({ url: '/api/starred-questions' });
+        const starredIds = starred.map(item => item.id);
+        this.setData({
+          starredIds,
+          isStarred: this.data.question ? starredIds.includes(this.data.question.id) : false,
+        });
+        return;
+      }
       const p = await request({ url: `/api/progress/${this.data.bankId}` });
       const starredIds = p.starred_ids || [];
       this.setData({
@@ -208,6 +220,8 @@ Page({
   async confirmAnswer() {
     const { question, selectedAnswer, bankId, sessionTotal, sessionCorrect } = this.data;
     if (!selectedAnswer || this.data.answerSubmitting) return;
+    const questionBankId = question && question.bank_id ? question.bank_id : bankId;
+    if (!questionBankId) return;
     const uid = await getUserId();
     if (!uid) {
       wx.showToast({ title: '登录失败，请重试', icon: 'none' });
@@ -222,7 +236,7 @@ Page({
         method: 'POST',
         data: {
           question_id: question.id,
-          bank_id: bankId,
+          bank_id: questionBankId,
           user_answer: selectedAnswer,
           time_spent: timeSpent,
           mode: this.data.mode === 'wrong' ? 'review' : 'practice',
@@ -242,7 +256,7 @@ Page({
         request({
           url: '/api/progress',
           method: 'POST',
-          data: { bank_id: bankId, position: this.data.startSkip + this.data.currentIndex + 1 },
+          data: { bank_id: questionBankId, position: this.data.startSkip + this.data.currentIndex + 1 },
         }).catch(() => {});
       }
     } catch {} finally {
@@ -275,11 +289,15 @@ Page({
   async toggleStar() {
     const uid = await getUserId();
     if (!uid) return;
+    const questionBankId = this.data.question && this.data.question.bank_id
+      ? this.data.question.bank_id
+      : this.data.bankId;
+    if (!questionBankId) return;
     try {
       const result = await request({
         url: '/api/star',
         method: 'POST',
-        data: { bank_id: this.data.bankId, question_id: this.data.question.id },
+        data: { bank_id: questionBankId, question_id: this.data.question.id },
       });
       const starredIds = result.is_starred
         ? [...new Set([...this.data.starredIds, this.data.question.id])]

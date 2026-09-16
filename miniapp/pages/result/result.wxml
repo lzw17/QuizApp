@@ -1,5 +1,5 @@
 <view class="container">
-  <view class="aigc-notice">题目可能由 AI 生成，仅供学习参考，请结合原始资料核对。</view>
+  <view class="aigc-notice">AI 生成 · 仅供参考，请结合原始资料核对</view>
   <!-- 分数圆环 -->
   <view class="score-section {{result.passed ? 'pass' : 'fail'}}">
     <view class="score-ring">

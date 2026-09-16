@@ -52,7 +52,7 @@
     <view class="done-area" wx:if="{{status === 'done'}}">
       <view class="done-icon">🎉</view>
       <view class="done-text">题库生成完成！共 {{generatedCount}} 道题</view>
-      <view class="aigc-notice">AI 生成内容，仅供学习参考，请结合原始资料核对。</view>
+      <view class="aigc-notice">AI 生成 · 仅供参考，请结合原始资料核对</view>
       <button class="btn-primary go-btn" bindtap="goDetail">开始刷题 →</button>
     </view>
 

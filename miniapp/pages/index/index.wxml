@@ -39,6 +39,7 @@
       </view>
       <view class="daily-status {{dailyQuestion.is_answered ? 'done' : ''}}">{{dailyQuestion.is_answered ? '今日已完成' : '开始作答'}}</view>
     </view>
+    <view class="aigc-badge daily-aigc">AI 生成 · 仅供参考</view>
     <view class="daily-content">{{dailyQuestion.question.content}}</view>
     <view class="daily-meta">{{dailyQuestion.question.type === 'multi' ? '多选题' : dailyQuestion.question.type === 'judge' ? '判断题' : '单选题'}} · 点击进入练习</view>
   </view>

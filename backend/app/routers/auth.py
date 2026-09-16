@@ -21,7 +21,14 @@ from sqlalchemy.orm import Session
 
 from ..auth import create_access_token, get_current_user
 from ..database import get_db
-from ..models.question import ExamSession, GenerateTask, QuestionBank, TaskStatus
+from ..models.question import (
+    BankStatus,
+    ExamSession,
+    GenerateTask,
+    Question,
+    QuestionBank,
+    TaskStatus,
+)
 from ..models.user import AnswerRecord, User, UserProgress
 from ..schemas.user import UserOut
 from ..config import settings
@@ -139,9 +146,17 @@ def delete_account(
     """Anonymize and disable an account, then revoke every active token."""
     old_openid = current_user.openid
     old_avatar = current_user.avatar or ""
-    owned_bank_ids = [bank_id for (bank_id,) in db.query(QuestionBank.id).filter(
-        QuestionBank.created_by == old_openid
-    ).all()]
+    owned_banks = db.query(
+        QuestionBank.id,
+        QuestionBank.source_file,
+        QuestionBank.source_type,
+    ).filter(QuestionBank.created_by == old_openid).all()
+    owned_bank_ids = [bank.id for bank in owned_banks]
+    owned_sources = [
+        (bank.source_file, bank.source_type)
+        for bank in owned_banks
+        if bank.source_file and bank.source_type != "url"
+    ]
     db.query(AnswerRecord).filter(AnswerRecord.user_id == current_user.id).delete(
         synchronize_session=False
     )
@@ -151,10 +166,18 @@ def delete_account(
     db.query(ExamSession).filter(ExamSession.user_id == current_user.id).delete(
         synchronize_session=False
     )
-    db.query(QuestionBank).filter(QuestionBank.created_by == old_openid).update(
-        {QuestionBank.created_by: ""}, synchronize_session=False
-    )
     if owned_bank_ids:
+        db.query(Question).filter(Question.bank_id.in_(owned_bank_ids)).update(
+            {Question.status: "deleted"},
+            synchronize_session=False,
+        )
+        db.query(QuestionBank).filter(QuestionBank.id.in_(owned_bank_ids)).update(
+            {
+                QuestionBank.created_by: "",
+                QuestionBank.status: BankStatus.deleted,
+            },
+            synchronize_session=False,
+        )
         db.query(GenerateTask).filter(
             GenerateTask.bank_id.in_(owned_bank_ids),
             GenerateTask.status.in_([TaskStatus.pending, TaskStatus.running]),
@@ -173,8 +196,33 @@ def delete_account(
     current_user.is_active = False
     current_user.token_version = (current_user.token_version or 0) + 1
     db.commit()
+    for source_file, source_type in owned_sources:
+        _remove_owned_source_file(source_file, source_type)
     _remove_owned_avatar(old_avatar)
     return {"message": "Account deleted"}
+
+
+def _remove_owned_source_file(source_file: str, source_type: str) -> None:
+    """Delete only generated PDF/DOCX uploads in the configured upload root."""
+    expected_extension = {"pdf": ".pdf", "word": ".docx"}.get(source_type)
+    if not source_file or not expected_extension:
+        return
+    upload_dir = os.path.realpath(settings.UPLOAD_DIR)
+    candidate = os.path.realpath(source_file)
+    if os.path.dirname(candidate) != upload_dir:
+        return
+    filename = os.path.basename(candidate)
+    if not re.fullmatch(
+        rf"[0-9a-f]{{8}}-(?:[0-9a-f]{{4}}-){{3}}[0-9a-f]{{12}}{re.escape(expected_extension)}",
+        filename,
+    ):
+        return
+    try:
+        os.remove(candidate)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        logger.warning("无法清理注销账号的源文件 %s", candidate, exc_info=True)
 
 
 def _remove_owned_avatar(avatar_url: str) -> None:

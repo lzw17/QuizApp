@@ -206,7 +206,9 @@ def start_exam(
         Question.status == "active",
     )
     if data.tag:
-        questions = questions.filter(Question.tags.contains(f'"{data.tag}"'))
+        questions = questions.filter(
+            Question.tags.contains(f'"{data.tag}"', autoescape=True)
+        )
     if data.difficulty:
         questions = questions.filter(Question.difficulty == data.difficulty)
     questions = questions.order_by(sa_func.random()).limit(data.question_count).all()
@@ -260,10 +262,11 @@ def list_starred_questions(
     for progress in progress_list:
         if not progress.starred_ids:
             continue
-        questions = db.query(Question).filter(
+        questions = db.query(Question).join(QuestionBank).filter(
             Question.id.in_(progress.starred_ids),
             Question.bank_id == progress.bank_id,
             Question.status == "active",
+            QuestionBank.status == BankStatus.ready,
         ).all()
         by_id = {question.id: question for question in questions}
         for question_id in progress.starred_ids:
@@ -289,18 +292,19 @@ def list_starred_questions(
 
 @router.get("/review-questions")
 def list_review_questions(
-    bank_id: int,
+    bank_id: Optional[int] = Query(None, ge=1),
     source: str = Query("wrong", pattern="^(wrong|starred)$"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Return answer-bearing questions only for a user's own review set."""
-    bank = db.query(QuestionBank).filter(
-        QuestionBank.id == bank_id,
-        QuestionBank.status == BankStatus.ready,
-    ).first()
-    if not bank:
-        raise HTTPException(404, "question bank not found")
+    if bank_id is not None:
+        bank = db.query(QuestionBank).filter(
+            QuestionBank.id == bank_id,
+            QuestionBank.status == BankStatus.ready,
+        ).first()
+        if not bank:
+            raise HTTPException(404, "question bank not found")
     try:
         return get_review_questions(db, current_user.id, bank_id, source)
     except ValueError as exc:

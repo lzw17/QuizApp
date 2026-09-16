@@ -26,6 +26,7 @@
       <view class="q-card card" wx:for="{{wrongList}}" wx:key="record_id">
         <view class="qc-header">
           <view class="q-type-tag {{item.question.type}}">{{typeLabel[item.question.type]}}</view>
+          <text class="aigc-badge">AI 生成 · 仅供参考</text>
           <text class="qc-time">{{item.answered_at}}</text>
         </view>
         <view class="qc-content">{{item.question.content}}</view>
@@ -55,6 +56,7 @@
       <view class="q-card card" wx:for="{{starList}}" wx:key="id">
         <view class="qc-header">
           <view class="q-type-tag {{item.type}}">{{typeLabel[item.type]}}</view>
+          <text class="aigc-badge">AI 生成 · 仅供参考</text>
           <view class="star-remove" bindtap="removeStar" data-id="{{item.id}}" data-bank="{{item.bank_id}}">☆ 取消</view>
         </view>
         <view class="qc-content">{{item.content}}</view>

@@ -1,4 +1,4 @@
-# 部署编排：MySQL + Redis + FastAPI 后端 + Nginx
+# 部署编排：MySQL + FastAPI 后端 + Nginx
 #
 # 使用步骤：
 #   1. cp .env.example .env            然后修改两个数据库密码
@@ -30,12 +30,6 @@ services:
       timeout: 5s
       retries: 10
 
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-
   backend:
     build: ../backend
     restart: unless-stopped
@@ -48,8 +42,6 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-      redis:
-        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 15s
@@ -72,4 +64,3 @@ services:
 
 volumes:
   mysql_data:
-  redis_data:

@@ -69,6 +69,7 @@ python run.py
 python -m unittest discover -s backend/tests -t . -v
 python -m compileall -q backend
 node miniapp/tests/app-auth.test.js
+node miniapp/tests/review-flow.test.js
 ```
 
 后端测试使用标准库 `unittest`，不依赖 pytest。生产环境必须使用
@@ -111,6 +112,9 @@ node miniapp/tests/app-auth.test.js
 | `WX_MOCK_LOGIN` | 本地固定身份模拟登录，仅允许 development | false |
 | `WX_MOCK_ADMIN` | mock 用户是否作为本地管理员 | false |
 | `ADMIN_OPENIDS` | 管理员 OpenID 列表，多个值用英文逗号分隔 | — |
+| `MAX_ACTIVE_GENERATION_TASKS` | 单用户 pending/running 任务上限 | 2 |
+| `MAX_CONCURRENT_GENERATION_TASKS` | 单进程同时执行的 AI 任务上限 | 2 |
+| `GENERATION_TIMEOUT_SECONDS` | 单个 AI 出题任务总超时（秒） | 900 |
 
 ## 微信登录流程
 

@@ -11,7 +11,8 @@ Page({
     tags: [],
     selectedTag: '',
     difficulty: null,
-    questions: [],
+    questionIndexes: [],
+    questionCount: 0,
     currentIndex: 0,
     currentQ: null,
     userAnswers: [],    // 索引对应题目，值为选择的答案字符串
@@ -24,6 +25,7 @@ Page({
   },
 
   _timer: null,
+  _questions: [],
 
   onLoad(options) {
     this.setData({
@@ -51,6 +53,7 @@ Page({
 
   onUnload() {
     this._clearTimer();
+    this._questions = [];
   },
 
   // ─── 考前准备 ───
@@ -73,8 +76,10 @@ Page({
       const list = exam.questions || [];
       if (!list.length) throw new Error('题库暂无可用题目');
       const minutes = Math.max(10, Math.ceil(list.length * 1.5));
+      this._questions = list;
       this.setData({
-        questions: list,
+        questionIndexes: list.map((_, index) => index),
+        questionCount: list.length,
         sessionId: exam.session_id,
         userAnswers: new Array(list.length).fill(''),
         currentIndex: 0,
@@ -135,17 +140,17 @@ Page({
 
   prevQ() {
     const i = this.data.currentIndex - 1;
-    if (i >= 0) this.setData({ currentIndex: i, currentQ: this.data.questions[i] });
+    if (i >= 0) this.setData({ currentIndex: i, currentQ: this._questions[i] });
   },
 
   nextQ() {
     const i = this.data.currentIndex + 1;
-    if (i < this.data.questions.length) this.setData({ currentIndex: i, currentQ: this.data.questions[i] });
+    if (i < this._questions.length) this.setData({ currentIndex: i, currentQ: this._questions[i] });
   },
 
   jumpTo(e) {
     const i = e.currentTarget.dataset.index;
-    this.setData({ currentIndex: i, currentQ: this.data.questions[i], showSheet: false });
+    this.setData({ currentIndex: i, currentQ: this._questions[i], showSheet: false });
   },
 
   showSheet() { this.setData({ showSheet: true }); },
@@ -154,7 +159,7 @@ Page({
   // ─── 交卷 ───
   confirmSubmit() {
     if (this.data.submitting) return;
-    const unanswered = this.data.questions.length - this.data.answeredCount;
+    const unanswered = this.data.questionCount - this.data.answeredCount;
     wx.showModal({
       title: '确认交卷',
       content: unanswered > 0 ? `还有 ${unanswered} 题未作答，确认交卷？` : '确认交卷？',
@@ -175,7 +180,7 @@ Page({
         wx.showToast({ title: '登录失败，请重试', icon: 'none' });
         return;
       }
-      const answers = this.data.questions.map((q, i) => ({
+      const answers = this._questions.map((q, i) => ({
         question_id: q.id,
         user_answer: this.data.userAnswers[i] || '',
         time_spent: 0,

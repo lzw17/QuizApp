@@ -30,7 +30,7 @@ Page({
     wx.chooseMessageFile({
       count: 1,
       type: 'file',
-      extension: ['.pdf', '.docx'],
+      extension: ['pdf', 'docx'],
       success: (res) => {
         const file = res.tempFiles[0];
         if (!file || file.size > 50 * 1024 * 1024) {
@@ -54,6 +54,7 @@ Page({
   removeFile() { this.setData({ selectedFile: null }); },
 
   async submit() {
+    if (this.data.submitting) return;
     const { bankName, sourceType, selectedFile, inputUrl, bankCategory, bankDesc, numDirect, numLogic } = this.data;
 
     if (!bankName.trim()) {

@@ -23,12 +23,13 @@ from ..models.question import GenerateTask, QuestionBank
 from ..models.user import User
 from ..schemas.question import UploadResponse, GenerateTaskOut
 from ..schemas.question import QuestionBankCreate
-from ..services.question_service import create_bank, run_generate_task
+from ..services.question_service import run_generate_task
 from ..config import settings
 
 router = APIRouter(prefix="/api", tags=["upload"])
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx"}
+_generation_admission_lock = asyncio.Lock()
 
 
 def _ensure_generation_capacity(db: Session, current_user: User) -> None:
@@ -41,6 +42,37 @@ def _ensure_generation_capacity(db: Session, current_user: User) -> None:
     ).count()
     if active >= settings.MAX_ACTIVE_GENERATION_TASKS:
         raise HTTPException(429, "当前已有任务正在生成，请稍后再试")
+
+
+def _create_generation_records(
+    db: Session,
+    task_id: str,
+    bank_data: QuestionBankCreate,
+    current_user: User,
+    source_file: str,
+    source_type: str,
+    message: str,
+) -> QuestionBank:
+    """Create the bank and task in one transaction after capacity admission."""
+    bank = QuestionBank(
+        name=bank_data.name,
+        description=bank_data.description,
+        category=bank_data.category,
+        status="pending",
+        source_file=source_file,
+        source_type=source_type,
+        created_by=current_user.openid,
+    )
+    db.add(bank)
+    db.flush()
+    db.add(GenerateTask(
+        id=task_id,
+        bank_id=bank.id,
+        message=message,
+    ))
+    db.commit()
+    db.refresh(bank)
+    return bank
 
 
 class UrlUploadRequest(BaseModel):
@@ -149,22 +181,31 @@ async def upload_file(
             pass
         raise
 
-    # 创建题库
     bank_data = QuestionBankCreate(
         name=bank_name or os.path.splitext(file.filename or "未命名")[0],
         description=bank_description,
         category=bank_category,
     )
-    bank = create_bank(db, bank_data)
-    bank.source_file = save_path
-    bank.source_type = source_type
-    bank.created_by = current_user.openid
-    db.commit()
-
-    # 创建任务记录
-    task = GenerateTask(id=task_id, bank_id=bank.id, message="任务已创建，等待处理...")
-    db.add(task)
-    db.commit()
+    try:
+        # The production image intentionally runs one API worker. This lock
+        # closes the check/create race between concurrent uploads in that worker.
+        async with _generation_admission_lock:
+            _ensure_generation_capacity(db, current_user)
+            bank = _create_generation_records(
+                db,
+                task_id,
+                bank_data,
+                current_user,
+                save_path,
+                source_type,
+                "任务已创建，等待处理...",
+            )
+    except Exception:
+        try:
+            os.remove(save_path)
+        except OSError:
+            pass
+        raise
 
     # 后台异步执行
     background_tasks.add_task(
@@ -199,15 +240,17 @@ async def upload_url(
         description=data.bank_description,
         category=data.bank_category,
     )
-    bank = create_bank(db, bank_data)
-    bank.source_file = url
-    bank.source_type = "url"
-    bank.created_by = current_user.openid
-    db.commit()
-
-    task = GenerateTask(id=task_id, bank_id=bank.id, message="任务已创建...")
-    db.add(task)
-    db.commit()
+    async with _generation_admission_lock:
+        _ensure_generation_capacity(db, current_user)
+        bank = _create_generation_records(
+            db,
+            task_id,
+            bank_data,
+            current_user,
+            url,
+            "url",
+            "任务已创建...",
+        )
 
     background_tasks.add_task(
         run_generate_task,

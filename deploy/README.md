@@ -8,7 +8,9 @@ WeChat legal domains before release, and replace every `<...>` placeholder.
 
 1. Install Python 3.11, MySQL and Nginx on the server.
 2. Create a MySQL database with `utf8mb4` and a least-privilege application user.
-3. Create `/opt/quizapp/backend/.env` from `backend/.env.example` and set:
+3. Create `/opt/quizapp/backend/.env` from
+   `backend/.env.production.example`. For a systemd deployment, change the
+   database host to `127.0.0.1` and set `UPLOAD_DIR=/var/lib/quizapp/uploads`:
 
 ```env
 APP_NAME=智题学习笔记
@@ -24,19 +26,26 @@ ADMIN_OPENIDS=<comma-separated openids>
 DATABASE_URL=mysql+pymysql://quizapp:<password>@127.0.0.1:3306/quiz_app
 PUBLIC_BASE_URL=https://api.quizapp.chat
 UPLOAD_DIR=/var/lib/quizapp/uploads
-ALLOWED_ORIGINS=https://api.quizapp.chat
+ALLOWED_ORIGINS=https://servicewechat.com
 DEEPSEEK_API_KEY=<deepseek key>
+MAX_ACTIVE_GENERATION_TASKS=2
+MAX_CONCURRENT_GENERATION_TASKS=2
+GENERATION_TIMEOUT_SECONDS=900
 ```
 
-4. Install dependencies in `/opt/quizapp/backend/.venv`. Back up the database,
+4. Install `requirements-prod.txt` in `/opt/quizapp/backend/.venv`. Back up the database,
    inspect duplicate `(user_id, bank_id)` rows, and apply
    `backend/migrations/001_user_progress_unique_mysql.sql` and
    `backend/migrations/002_user_token_version_mysql.sql`, and
    `backend/migrations/003_user_account_deletion_mysql.sql` before starting
    the service. `create_all()` creates missing tables but does not alter existing
    production tables.
-5. Install `quizapp.service` as a systemd unit and start it.
-6. For the Docker layout (Docker Compose v2.24+), the normal Nginx config expects an existing certificate
+5. Install `quizapp.service` as a systemd unit and start it. The unit creates
+   `/var/lib/quizapp`; the application creates its `uploads/` and `avatars/`
+   subdirectories as the `quizapp` service user.
+6. For the Docker layout (Docker Compose v2.24+), keep the production
+   template's `DATABASE_URL` host as `mysql` and `UPLOAD_DIR=/app/uploads`.
+   The normal Nginx config expects an existing certificate
    in `deploy/certs/`. On a new host, first create the ACME webroot and start the
    HTTP-only bootstrap config:
 
@@ -62,6 +71,10 @@ with production reload enabled.
 In the Mini Program console, add `https://api.quizapp.chat` to request and
 uploadFile legal domains. Use the same HTTPS origin in `miniapp/app.js`, build
 the `miniapp/` directory, test the experience version, then submit for review.
+The User Privacy Protection Guide must also disclose that uploaded file or URL
+content is sent to DeepSeek for question generation, URL addresses are sent to
+Jina Reader for webpage extraction, and, when enabled, PDFs are sent to MinerU
+for cloud parsing. Keep the provider list aligned with production config.
 
 ## Smoke checks
 

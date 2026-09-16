@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     MAX_GENERATION_CHUNKS: int = 100
     MAX_GENERATED_QUESTIONS: int = 500
     MAX_ACTIVE_GENERATION_TASKS: int = 2
+    MAX_CONCURRENT_GENERATION_TASKS: int = 2
+    GENERATION_TIMEOUT_SECONDS: int = 900
 
     # CORS
     ALLOWED_ORIGINS: str = "*"
@@ -81,8 +83,10 @@ class Settings(BaseSettings):
             raise RuntimeError("TASK_STALE_MINUTES must be positive")
         if self.MAX_GENERATION_CHUNKS <= 0 or self.MAX_GENERATED_QUESTIONS <= 0:
             raise RuntimeError("Generation limits must be positive")
-        if self.MAX_ACTIVE_GENERATION_TASKS <= 0:
-            raise RuntimeError("MAX_ACTIVE_GENERATION_TASKS must be positive")
+        if self.MAX_ACTIVE_GENERATION_TASKS <= 0 or self.MAX_CONCURRENT_GENERATION_TASKS <= 0:
+            raise RuntimeError("Generation concurrency limits must be positive")
+        if self.GENERATION_TIMEOUT_SECONDS <= 0:
+            raise RuntimeError("GENERATION_TIMEOUT_SECONDS must be positive")
         if self.APP_ENV.lower() not in ("prod", "production"):
             return
         if self.WX_MOCK_LOGIN:

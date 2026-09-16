@@ -28,7 +28,12 @@
   "miniprogramRoot": "miniapp/",
   "simulatorPluginLibVersion": {},
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      {
+        "type": "folder",
+        "value": "tests"
+      }
+    ],
     "include": []
   },
   "appid": "wx0bf65ee014cf8924",

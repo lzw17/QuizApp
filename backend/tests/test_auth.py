@@ -24,6 +24,7 @@ os.environ.update(
 from fastapi.testclient import TestClient
 
 from backend.app.database import SessionLocal, engine
+from backend.app.config import settings
 from backend.app.main import app
 from backend.app.models.question import GenerateTask, Question, QuestionBank
 from backend.app.models.user import AnswerRecord, User, UserProgress
@@ -278,6 +279,51 @@ class AuthFlowTest(unittest.TestCase):
         )
         self.assertEqual(private_url.status_code, 400, private_url.text)
 
+    def test_upload_rejects_when_user_reaches_generation_capacity(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        db = SessionLocal()
+        try:
+            bank_ids = []
+            for index in range(2):
+                bank = QuestionBank(
+                    name=f"active-generation-{index}-{uuid.uuid4().hex[:8]}",
+                    status="pending",
+                    created_by="mock_auth-test-user",
+                )
+                db.add(bank)
+                db.flush()
+                bank_ids.append(bank.id)
+                db.add(GenerateTask(
+                    id=uuid.uuid4().hex,
+                    bank_id=bank.id,
+                    status="running" if index else "pending",
+                ))
+            db.commit()
+        finally:
+            db.close()
+
+        response = self.client.post(
+            "/api/upload/url",
+            headers=headers,
+            json={"url": "https://example.com/source", "bank_name": "over-limit"},
+        )
+        self.assertEqual(response.status_code, 429, response.text)
+
+        db = SessionLocal()
+        try:
+            db.query(GenerateTask).filter(GenerateTask.bank_id.in_(bank_ids)).update(
+                {GenerateTask.status: "failed"},
+                synchronize_session=False,
+            )
+            db.query(QuestionBank).filter(QuestionBank.id.in_(bank_ids)).update(
+                {QuestionBank.status: "deleted"},
+                synchronize_session=False,
+            )
+            db.commit()
+        finally:
+            db.close()
+
     def test_expired_token_is_rejected(self):
         session = self.login()
         future = time.time() + session["expires_in"] + 1
@@ -509,8 +555,17 @@ class AuthFlowTest(unittest.TestCase):
         session = self.login()
         headers = {"Authorization": f"Bearer {session['access_token']}"}
         bank_id, question_id = self.create_bank()
+        source_path = os.path.join(settings.UPLOAD_DIR, f"{uuid.uuid4()}.pdf")
+        with open(source_path, "wb") as source:
+            source.write(b"%PDF-1.4 test source")
+        self.addCleanup(
+            lambda: os.path.exists(source_path) and os.remove(source_path)
+        )
         db = SessionLocal()
         try:
+            bank = db.get(QuestionBank, bank_id)
+            bank.source_file = source_path
+            bank.source_type = "pdf"
             db.add(UserProgress(
                 user_id=session["user"]["id"],
                 bank_id=bank_id,
@@ -530,6 +585,7 @@ class AuthFlowTest(unittest.TestCase):
 
         response = self.client.delete("/api/auth/account", headers=headers)
         self.assertEqual(response.status_code, 200, response.text)
+        self.assertFalse(os.path.exists(source_path))
         self.assertEqual(self.client.get("/api/auth/me", headers=headers).status_code, 401)
         db = SessionLocal()
         try:
@@ -538,6 +594,8 @@ class AuthFlowTest(unittest.TestCase):
             self.assertEqual(user.nickname, "")
             self.assertEqual(db.query(AnswerRecord).filter(AnswerRecord.user_id == user.id).count(), 0)
             self.assertEqual(db.query(UserProgress).filter(UserProgress.user_id == user.id).count(), 0)
+            self.assertEqual(db.get(QuestionBank, bank_id).status, "deleted")
+            self.assertEqual(db.get(Question, question_id).status, "deleted")
         finally:
             db.close()
 
@@ -654,6 +712,102 @@ class AuthFlowTest(unittest.TestCase):
             0,
         )
 
+    def test_cross_bank_wrong_and_review_queries_include_every_bank(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        baseline = self.client.get(
+            "/api/questions/count?mode=wrong",
+            headers=headers,
+        ).json()["total"]
+        pairs = [self.create_bank(), self.create_bank()]
+        db = SessionLocal()
+        try:
+            for _, question_id in pairs:
+                question = db.get(Question, question_id)
+                question.options = [
+                    {"key": "A", "text": "correct"},
+                    {"key": "B", "text": "wrong"},
+                ]
+            db.commit()
+        finally:
+            db.close()
+
+        for bank_id, question_id in pairs:
+            response = self.client.post(
+                "/api/answer",
+                headers=headers,
+                json={"bank_id": bank_id, "question_id": question_id, "user_answer": "B"},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+
+        questions = self.client.get(
+            "/api/questions?mode=wrong&limit=100",
+            headers=headers,
+        )
+        self.assertEqual(questions.status_code, 200, questions.text)
+        by_id = {item["id"]: item for item in questions.json()}
+        for bank_id, question_id in pairs:
+            self.assertEqual(by_id[question_id]["bank_id"], bank_id)
+            self.assertNotIn("answer", by_id[question_id])
+        self.assertEqual(
+            self.client.get("/api/questions/count?mode=wrong", headers=headers).json()["total"],
+            baseline + 2,
+        )
+
+        review = self.client.get(
+            "/api/review-questions?source=wrong",
+            headers=headers,
+        )
+        self.assertEqual(review.status_code, 200, review.text)
+        review_by_id = {item["id"]: item for item in review.json()}
+        for _, question_id in pairs:
+            self.assertEqual(review_by_id[question_id]["answer"], "A")
+
+        for bank_id, question_id in pairs:
+            starred = self.client.post(
+                "/api/star",
+                headers=headers,
+                json={"bank_id": bank_id, "question_id": question_id},
+            )
+            self.assertEqual(starred.status_code, 200, starred.text)
+            self.assertTrue(starred.json()["is_starred"])
+
+        starred_questions = self.client.get(
+            "/api/questions?mode=starred&limit=100",
+            headers=headers,
+        )
+        self.assertEqual(starred_questions.status_code, 200, starred_questions.text)
+        starred_by_id = {item["id"]: item for item in starred_questions.json()}
+        for bank_id, question_id in pairs:
+            self.assertEqual(starred_by_id[question_id]["bank_id"], bank_id)
+            self.assertNotIn("answer", starred_by_id[question_id])
+
+        starred_review = self.client.get(
+            "/api/review-questions?source=starred",
+            headers=headers,
+        )
+        self.assertEqual(starred_review.status_code, 200, starred_review.text)
+        starred_review_by_id = {item["id"]: item for item in starred_review.json()}
+        for _, question_id in pairs:
+            self.assertEqual(starred_review_by_id[question_id]["answer"], "A")
+
+        no_bank = self.client.get("/api/questions?mode=sequential", headers=headers)
+        self.assertEqual(no_bank.status_code, 400, no_bank.text)
+
+        for bank_id, question_id in pairs:
+            self.client.post(
+                "/api/answer",
+                headers=headers,
+                json={"bank_id": bank_id, "question_id": question_id, "user_answer": "A"},
+            )
+        db = SessionLocal()
+        try:
+            for bank_id, _ in pairs:
+                db.get(QuestionBank, bank_id).status = "deleted"
+            db.commit()
+        finally:
+            db.close()
+
     def test_random_seed_pagination_is_stable_without_duplicates(self):
         session = self.login()
         headers = {"Authorization": f"Bearer {session['access_token']}"}
@@ -741,15 +895,37 @@ class AuthFlowTest(unittest.TestCase):
         db = SessionLocal()
         try:
             question = db.get(Question, question_id)
-            question.tags = ["filtered"]
+            question.tags = ["chapter_1"]
             question.difficulty = 4
+            db.add(Question(
+                bank_id=bank_id,
+                type="single",
+                content="tag wildcard control",
+                options=[{"key": "A", "text": "answer"}],
+                answer="A",
+                tags=["chapterA1"],
+                difficulty=4,
+                order_index=2,
+            ))
             db.commit()
         finally:
             db.close()
+        filtered = self.client.get(
+            f"/api/questions?bank_id={bank_id}&tag=chapter_1&limit=100",
+            headers=headers,
+        )
+        self.assertEqual(filtered.status_code, 200, filtered.text)
+        self.assertEqual([item["id"] for item in filtered.json()], [question_id])
+        count = self.client.get(
+            f"/api/questions/count?bank_id={bank_id}&tag=chapter_1",
+            headers=headers,
+        )
+        self.assertEqual(count.status_code, 200, count.text)
+        self.assertEqual(count.json()["total"], 1)
         response = self.client.post(
             "/api/exam/start",
             headers=headers,
-            json={"bank_id": bank_id, "question_count": 1, "tag": "filtered", "difficulty": 4},
+            json={"bank_id": bank_id, "question_count": 1, "tag": "chapter_1", "difficulty": 4},
         )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual([item["id"] for item in response.json()["questions"]], [question_id])
@@ -848,6 +1024,146 @@ class AuthFlowTest(unittest.TestCase):
             bank = db.get(QuestionBank, bank_id)
             self.assertEqual(task.status, "failed")
             self.assertEqual(task.error, "生成失败，请更换资料或稍后重试")
+            self.assertEqual(bank.status, "deleted")
+        finally:
+            db.close()
+
+    def test_generation_success_marks_pending_bank_ready(self):
+        db = SessionLocal()
+        try:
+            bank = QuestionBank(
+                name=f"generation-success-{uuid.uuid4().hex[:8]}",
+                status="pending",
+                created_by="mock_auth-test-user",
+                total_count=0,
+            )
+            db.add(bank)
+            db.flush()
+            bank_id = bank.id
+            task_id = uuid.uuid4().hex
+            db.add(GenerateTask(
+                id=task_id,
+                bank_id=bank_id,
+                status="pending",
+                message="queued",
+            ))
+            db.commit()
+        finally:
+            db.close()
+
+        generated = [{
+            "bank_id": bank_id,
+            "type": "single",
+            "content": "generated question",
+            "options": [{"key": "A", "text": "answer"}],
+            "answer": "A",
+            "explanation": "generated explanation",
+            "tags": ["generated"],
+            "difficulty": 2,
+        }]
+
+        async def parsed_document(*args, **kwargs):
+            return "source text"
+
+        async def generated_questions(*args, **kwargs):
+            callback = kwargs.get("progress_callback")
+            if callback:
+                await callback(1, 1, 1, "generating")
+            return generated
+
+        with (
+            patch(
+                "backend.app.services.question_service.parse_document",
+                new=parsed_document,
+            ),
+            patch(
+                "backend.app.services.question_service.split_text_into_chunks",
+                return_value=["source text"],
+            ),
+            patch(
+                "backend.app.services.question_service.generate_questions_from_chunks",
+                new=generated_questions,
+            ),
+            patch(
+                "backend.app.services.question_service.classify_questions_tags",
+                new=AsyncMock(side_effect=lambda questions: questions),
+            ),
+        ):
+            asyncio.run(
+                run_generate_task(
+                    task_id=task_id,
+                    bank_id=bank_id,
+                    file_path="https://example.com/source",
+                    source_type="url",
+                    db_factory=SessionLocal,
+                )
+            )
+
+        db = SessionLocal()
+        try:
+            task = db.get(GenerateTask, task_id)
+            bank = db.get(QuestionBank, bank_id)
+            self.assertEqual(task.status, "done")
+            self.assertEqual(task.progress, 100)
+            self.assertEqual(bank.status, "ready")
+            self.assertEqual(bank.total_count, 1)
+            self.assertEqual(
+                db.query(Question).filter(Question.bank_id == bank_id).count(),
+                1,
+            )
+            bank.status = "deleted"
+            db.commit()
+        finally:
+            db.close()
+
+    def test_generation_timeout_marks_task_failed(self):
+        db = SessionLocal()
+        try:
+            bank = QuestionBank(
+                name=f"generation-timeout-{uuid.uuid4().hex[:8]}",
+                status="pending",
+                created_by="mock_auth-test-user",
+            )
+            db.add(bank)
+            db.flush()
+            bank_id = bank.id
+            task_id = uuid.uuid4().hex
+            db.add(GenerateTask(id=task_id, bank_id=bank_id, status="pending"))
+            db.commit()
+        finally:
+            db.close()
+
+        async def slow_document(*args, **kwargs):
+            await asyncio.sleep(0.05)
+            return "source text"
+
+        with (
+            patch(
+                "backend.app.services.question_service.parse_document",
+                new=slow_document,
+            ),
+            patch(
+                "backend.app.services.question_service.settings.GENERATION_TIMEOUT_SECONDS",
+                0.01,
+            ),
+        ):
+            asyncio.run(
+                run_generate_task(
+                    task_id=task_id,
+                    bank_id=bank_id,
+                    file_path="https://example.com/source",
+                    source_type="url",
+                    db_factory=SessionLocal,
+                )
+            )
+
+        db = SessionLocal()
+        try:
+            task = db.get(GenerateTask, task_id)
+            bank = db.get(QuestionBank, bank_id)
+            self.assertEqual(task.status, "failed")
+            self.assertEqual(task.error, "生成失败，请更换资料或稍后重试")
+            self.assertEqual(task.message, "出题超时，请缩小资料后重试")
             self.assertEqual(bank.status, "deleted")
         finally:
             db.close()

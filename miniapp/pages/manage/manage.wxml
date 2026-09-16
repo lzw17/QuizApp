@@ -26,6 +26,7 @@
   <view class="modal {{editingBankId ? 'show' : ''}}">
     <view class="modal-header">
       <text class="modal-title">题目列表</text>
+      <text class="aigc-badge">AI 生成 · 仅供参考</text>
       <text class="modal-close" bindtap="closeModal">✕</text>
     </view>
     <scroll-view class="modal-scroll" scroll-y>
@@ -45,6 +46,7 @@
   <view class="form-modal" wx:if="{{editForm}}">
     <view class="fm-header">
       <text class="fm-title">编辑题目</text>
+      <text class="aigc-badge">AI 生成 · 仅供参考</text>
       <text bindtap="closeForm">✕</text>
     </view>
     <view class="fm-body">

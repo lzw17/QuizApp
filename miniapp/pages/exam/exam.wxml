@@ -49,12 +49,13 @@
     <view class="timer {{timeLeft <= 60 ? 'urgent' : ''}}">
       ⏱ {{fmt.formatTime(timeLeft)}}
     </view>
-    <view class="exam-progress">{{answeredCount}}/{{questions.length}} 已答</view>
+    <view class="exam-progress">{{answeredCount}}/{{questionCount}} 已答</view>
     <view class="sheet-btn" bindtap="showSheet">答题卡</view>
   </view>
 
   <!-- 题目 -->
   <view class="question-card">
+    <view class="aigc-badge">AI 生成 · 仅供参考</view>
     <view class="q-num">第 {{currentIndex + 1}} 题</view>
     <view class="q-type-tag {{currentQ.type}}">{{typeLabel[currentQ.type]}}</view>
     <view class="q-content">{{currentQ.content}}</view>
@@ -75,7 +76,7 @@
   <view class="exam-nav safe-bottom">
     <button class="nav-btn" bindtap="prevQ" disabled="{{currentIndex === 0}}">‹ 上一题</button>
     <button class="nav-btn submit-btn" bindtap="confirmSubmit" disabled="{{submitting}}">{{submitting ? '提交中...' : '交卷'}}</button>
-    <button class="nav-btn" bindtap="nextQ" disabled="{{currentIndex === questions.length - 1}}">下一题 ›</button>
+    <button class="nav-btn" bindtap="nextQ" disabled="{{currentIndex === questionCount - 1}}">下一题 ›</button>
   </view>
 
   <!-- 答题卡弹层 -->
@@ -84,17 +85,17 @@
     <view class="sheet-title">答题卡</view>
     <view class="sheet-grid">
       <view
-        wx:for="{{questions}}" wx:key="id"
-        class="sheet-item {{userAnswers[index] ? 'answered' : ''}} {{index === currentIndex ? 'current' : ''}}"
+        wx:for="{{questionIndexes}}" wx:key="*this"
+        class="sheet-item {{userAnswers[item] ? 'answered' : ''}} {{item === currentIndex ? 'current' : ''}}"
         bindtap="jumpTo"
-        data-index="{{index}}"
-      >{{index + 1}}</view>
+        data-index="{{item}}"
+      >{{item + 1}}</view>
     </view>
     <view class="sheet-legend">
       <view class="legend-item"><view class="legend-dot answered"></view>已答</view>
       <view class="legend-item"><view class="legend-dot"></view>未答</view>
       <view class="legend-item"><view class="legend-dot current"></view>当前</view>
     </view>
-    <button class="btn-primary sheet-submit" bindtap="confirmSubmit" disabled="{{submitting}}">交卷 ({{answeredCount}}/{{questions.length}})</button>
+    <button class="btn-primary sheet-submit" bindtap="confirmSubmit" disabled="{{submitting}}">交卷 ({{answeredCount}}/{{questionCount}})</button>
   </view>
 </view>

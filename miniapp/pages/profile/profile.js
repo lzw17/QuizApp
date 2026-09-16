@@ -76,7 +76,7 @@ Page({
   deleteAccount() {
     wx.showModal({
       title: '注销账号',
-      content: '注销后会清理作答记录、收藏和学习进度，且无法恢复。确定继续吗？',
+      content: '注销后会删除你创建的题库，并清理作答记录、收藏和学习进度，且无法恢复。确定继续吗？',
       confirmText: '确认注销',
       confirmColor: '#FF4D4F',
       success: async res => {

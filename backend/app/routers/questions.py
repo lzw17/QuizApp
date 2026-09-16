@@ -19,9 +19,9 @@ from sqlalchemy import func as sa_func
 from ..auth import get_current_user, require_admin
 from ..database import get_db
 from ..models.question import GenerateTask, QuestionBank, Question, BankStatus, TaskStatus
-from ..models.user import User, UserProgress
+from ..models.user import User
 from ..schemas.question import QuestionBankListItem, QuestionBankOut, QuestionOut, QuestionPublicOut, QuestionCreate
-from ..services.question_service import get_current_wrong_question_ids
+from ..services.question_service import get_current_wrong_question_ids, get_starred_question_ids
 
 router = APIRouter(prefix="/api", tags=["questions"])
 
@@ -164,7 +164,7 @@ def delete_bank(
 
 @router.get("/questions", response_model=List[QuestionPublicOut])
 def get_questions(
-    bank_id: int = Query(...),
+    bank_id: Optional[int] = Query(None, ge=1),
     mode: str = Query("sequential", description="sequential/random/wrong/starred"),
     tag: Optional[str] = None,
     difficulty: Optional[int] = Query(None, ge=1, le=5),
@@ -174,14 +174,19 @@ def get_questions(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _get_visible_bank(db, bank_id, current_user)
     if mode not in ("sequential", "random", "wrong", "starred"):
         raise HTTPException(400, "不支持的题目模式")
+    if bank_id is None and mode not in ("wrong", "starred"):
+        raise HTTPException(400, "顺序和随机练习必须指定题库")
+    if bank_id is not None:
+        _get_visible_bank(db, bank_id, current_user)
 
-    query = db.query(Question).filter(
-        Question.bank_id == bank_id,
+    query = db.query(Question).join(QuestionBank).filter(
         Question.status == "active",
+        QuestionBank.status == BankStatus.ready,
     )
+    if bank_id is not None:
+        query = query.filter(Question.bank_id == bank_id)
 
     ordered_ids: Optional[List[int]] = None
     if mode == "wrong":
@@ -190,17 +195,13 @@ def get_questions(
             return []
         query = query.filter(Question.id.in_(ordered_ids))
     elif mode == "starred":
-        progress = db.query(UserProgress).filter(
-            UserProgress.user_id == current_user.id,
-            UserProgress.bank_id == bank_id,
-        ).first()
-        ordered_ids = list(progress.starred_ids or []) if progress else []
+        ordered_ids = get_starred_question_ids(db, current_user.id, bank_id)
         if not ordered_ids:
             return []
         query = query.filter(Question.id.in_(ordered_ids))
 
     if tag:
-        query = query.filter(Question.tags.contains(f'"{tag}"'))
+        query = query.filter(Question.tags.contains(f'"{tag}"', autoescape=True))
     if difficulty:
         query = query.filter(Question.difficulty == difficulty)
 
@@ -225,7 +226,7 @@ def get_questions(
 
 @router.get("/questions/count")
 def count_questions(
-    bank_id: int = Query(...),
+    bank_id: Optional[int] = Query(None, ge=1),
     mode: str = Query("sequential"),
     tag: Optional[str] = None,
     difficulty: Optional[int] = Query(None, ge=1, le=5),
@@ -233,25 +234,26 @@ def count_questions(
     db: Session = Depends(get_db),
 ):
     """返回当前筛选条件下的题目总数，供前端分页加载使用。"""
-    _get_visible_bank(db, bank_id, current_user)
-    query = db.query(Question).filter(
-        Question.bank_id == bank_id,
+    if mode not in ("sequential", "random", "wrong", "starred"):
+        raise HTTPException(400, "不支持的题目模式")
+    if bank_id is None and mode not in ("wrong", "starred"):
+        raise HTTPException(400, "顺序和随机练习必须指定题库")
+    if bank_id is not None:
+        _get_visible_bank(db, bank_id, current_user)
+    query = db.query(Question).join(QuestionBank).filter(
         Question.status == "active",
+        QuestionBank.status == BankStatus.ready,
     )
+    if bank_id is not None:
+        query = query.filter(Question.bank_id == bank_id)
     if mode == "wrong":
         ids = get_current_wrong_question_ids(db, current_user.id, bank_id)
         query = query.filter(Question.id.in_(ids)) if ids else query.filter(Question.id == -1)
     elif mode == "starred":
-        progress = db.query(UserProgress).filter(
-            UserProgress.user_id == current_user.id,
-            UserProgress.bank_id == bank_id,
-        ).first()
-        ids = list(progress.starred_ids or []) if progress else []
+        ids = get_starred_question_ids(db, current_user.id, bank_id)
         query = query.filter(Question.id.in_(ids)) if ids else query.filter(Question.id == -1)
-    elif mode not in ("sequential", "random"):
-        raise HTTPException(400, "不支持的题目模式")
     if tag:
-        query = query.filter(Question.tags.contains(f'"{tag}"'))
+        query = query.filter(Question.tags.contains(f'"{tag}"', autoescape=True))
     if difficulty:
         query = query.filter(Question.difficulty == difficulty)
     return {"total": query.count()}

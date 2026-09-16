@@ -20,6 +20,7 @@ from ..services.doc_parser import parse_document, split_text_into_chunks
 from ..services.ai_engine import generate_questions_from_chunks, classify_questions_tags
 
 logger = logging.getLogger(__name__)
+_generation_slots = asyncio.Semaphore(settings.MAX_CONCURRENT_GENERATION_TASKS)
 
 
 class GenerationCancelled(Exception):
@@ -129,7 +130,7 @@ def get_questions(
         QuestionBank.status == BankStatus.ready,
     )
     if tag:
-        query = query.filter(Question.tags.contains(tag))
+        query = query.filter(Question.tags.contains(f'"{tag}"', autoescape=True))
     if difficulty:
         query = query.filter(Question.difficulty == difficulty)
 
@@ -223,33 +224,50 @@ def get_current_wrong_question_ids(
     return [record.question_id for record in records]
 
 
+def get_starred_question_ids(
+    db: Session,
+    user_id: int,
+    bank_id: Optional[int] = None,
+) -> List[int]:
+    """Return the user's starred question ids across one or all banks."""
+    query = db.query(UserProgress).filter(UserProgress.user_id == user_id)
+    if bank_id is not None:
+        query = query.filter(UserProgress.bank_id == bank_id)
+    result = []
+    seen = set()
+    for progress in query.order_by(UserProgress.id).all():
+        for question_id in progress.starred_ids or []:
+            if question_id not in seen:
+                seen.add(question_id)
+                result.append(question_id)
+    return result
+
+
 def get_review_questions(
     db: Session,
     user_id: int,
-    bank_id: int,
+    bank_id: Optional[int],
     source: str,
 ) -> List[dict]:
     """Return answer-bearing questions only for the user's review set."""
     if source == "wrong":
         question_ids = get_current_wrong_question_ids(db, user_id, bank_id)
     elif source == "starred":
-        progress = db.query(UserProgress).filter(
-            UserProgress.user_id == user_id,
-            UserProgress.bank_id == bank_id,
-        ).first()
-        question_ids = list(progress.starred_ids or []) if progress else []
+        question_ids = get_starred_question_ids(db, user_id, bank_id)
     else:
         raise ValueError("source must be wrong or starred")
 
     if not question_ids:
         return []
     question_ids = question_ids[:100]
-    questions = db.query(Question).join(QuestionBank).filter(
+    query = db.query(Question).join(QuestionBank).filter(
         Question.id.in_(question_ids),
-        Question.bank_id == bank_id,
         Question.status == "active",
         QuestionBank.status == BankStatus.ready,
-    ).all()
+    )
+    if bank_id is not None:
+        query = query.filter(Question.bank_id == bank_id)
+    questions = query.all()
     by_id = {question.id: question for question in questions}
     return [
         {
@@ -483,6 +501,261 @@ def recover_stale_tasks(db: Session, stale_minutes: int = 60) -> int:
 #  异步出题任务
 # ──────────────────────────────────────────
 
+def _status_is(value, expected) -> bool:
+    return value in (expected, expected.value)
+
+
+def _begin_generation(db_factory, task_id: str, bank_id: int) -> bool:
+    db: Session = db_factory()
+    try:
+        task = db.get(GenerateTask, task_id)
+        bank = db.get(QuestionBank, bank_id)
+        if not task:
+            return False
+        if not bank or not _status_is(bank.status, BankStatus.pending):
+            raise GenerationCancelled("题库已删除或状态已变更")
+        if not _status_is(task.status, TaskStatus.pending):
+            return False
+        task.status = TaskStatus.running
+        task.message = "正在解析文档..."
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+def _require_generation_active(db: Session, task_id: str, bank_id: int) -> GenerateTask:
+    task = db.get(GenerateTask, task_id)
+    bank = db.get(QuestionBank, bank_id)
+    if (
+        not task
+        or not _status_is(task.status, TaskStatus.running)
+        or not bank
+        or not _status_is(bank.status, BankStatus.pending)
+    ):
+        raise GenerationCancelled("生成任务已终止")
+    return task
+
+
+def _check_generation_active(db_factory, task_id: str, bank_id: int) -> None:
+    db: Session = db_factory()
+    try:
+        _require_generation_active(db, task_id, bank_id)
+    finally:
+        db.close()
+
+
+def _set_generation_plan(
+    db_factory,
+    task_id: str,
+    bank_id: int,
+    total_chunks: int,
+) -> None:
+    db: Session = db_factory()
+    try:
+        task = _require_generation_active(db, task_id, bank_id)
+        task.total_chunks = total_chunks
+        task.message = f"文档已分为 {total_chunks} 个段落，开始出题..."
+        db.commit()
+    finally:
+        db.close()
+
+
+def _update_generation_progress(
+    db_factory,
+    task_id: str,
+    bank_id: int,
+    processed: int,
+    total: int,
+    generated: int,
+    message: str,
+) -> None:
+    db: Session = db_factory()
+    try:
+        task = _require_generation_active(db, task_id, bank_id)
+        task.processed_chunks = processed
+        task.generated_count = generated
+        task.progress = int(processed / total * 90) if total else 0
+        task.message = message
+        db.commit()
+    finally:
+        db.close()
+
+
+def _set_generation_message(
+    db_factory,
+    task_id: str,
+    bank_id: int,
+    message: str,
+) -> None:
+    db: Session = db_factory()
+    try:
+        task = _require_generation_active(db, task_id, bank_id)
+        task.message = message
+        db.commit()
+    finally:
+        db.close()
+
+
+def _persist_generated_questions(
+    db_factory,
+    task_id: str,
+    bank_id: int,
+    questions: List[dict],
+) -> None:
+    db: Session = db_factory()
+    try:
+        task = _require_generation_active(db, task_id, bank_id)
+        for index, question in enumerate(questions):
+            payload = dict(question)
+            payload["bank_id"] = bank_id
+            payload["order_index"] = index
+            db.add(Question(**payload))
+
+        db.flush()
+        updated = db.query(QuestionBank).filter(
+            QuestionBank.id == bank_id,
+            QuestionBank.status == BankStatus.pending,
+        ).update(
+            {
+                QuestionBank.total_count: len(questions),
+                QuestionBank.status: BankStatus.ready,
+            },
+            synchronize_session=False,
+        )
+        if updated != 1:
+            raise GenerationCancelled("题库已删除或状态已变更")
+
+        task.status = TaskStatus.done
+        task.progress = 100
+        task.generated_count = len(questions)
+        task.message = f"出题完成！共生成 {len(questions)} 道题目"
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def _mark_generation_cancelled(db_factory, task_id: str) -> None:
+    db: Session = db_factory()
+    try:
+        task = db.get(GenerateTask, task_id)
+        if task and not (
+            _status_is(task.status, TaskStatus.failed)
+            or _status_is(task.status, TaskStatus.done)
+        ):
+            task.status = TaskStatus.failed
+            task.error = "generation cancelled"
+            task.message = "题库已删除或任务已终止"
+            db.commit()
+    finally:
+        db.close()
+
+
+def _mark_generation_failed(db_factory, task_id: str, bank_id: int, message: str) -> None:
+    db: Session = db_factory()
+    try:
+        task = db.get(GenerateTask, task_id)
+        if task and (
+            _status_is(task.status, TaskStatus.pending)
+            or _status_is(task.status, TaskStatus.running)
+        ):
+            task.status = TaskStatus.failed
+            task.error = "生成失败，请更换资料或稍后重试"
+            task.message = message
+        bank = db.get(QuestionBank, bank_id)
+        if bank and _status_is(bank.status, BankStatus.pending):
+            bank.status = BankStatus.deleted
+        db.commit()
+    finally:
+        db.close()
+
+
+def _cleanup_uploaded_source(file_path: str, source_type: str) -> None:
+    if source_type == "url" or not file_path or not os.path.isfile(file_path):
+        return
+    try:
+        os.remove(file_path)
+    except OSError:
+        logger.warning("无法清理源文件 %s", file_path, exc_info=True)
+
+
+async def _run_generation_pipeline(
+    task_id: str,
+    bank_id: int,
+    file_path: str,
+    source_type: str,
+    db_factory,
+    num_direct: int,
+    num_logic: int,
+) -> None:
+    started = await asyncio.to_thread(_begin_generation, db_factory, task_id, bank_id)
+    if not started:
+        return
+
+    text = await parse_document(file_path, source_type)
+    await asyncio.to_thread(_check_generation_active, db_factory, task_id, bank_id)
+    if not text.strip():
+        raise ValueError("文档内容为空，请检查文件")
+
+    chunks = await asyncio.to_thread(split_text_into_chunks, text)
+    if not chunks:
+        raise ValueError("文档内容不足，无法生成题目")
+    if len(chunks) > settings.MAX_GENERATION_CHUNKS:
+        raise ValueError(
+            f"文档内容过长，最多支持 {settings.MAX_GENERATION_CHUNKS} 个文本分块"
+        )
+    await asyncio.to_thread(
+        _set_generation_plan,
+        db_factory,
+        task_id,
+        bank_id,
+        len(chunks),
+    )
+
+    async def on_progress(processed: int, total: int, generated: int, message: str):
+        await asyncio.to_thread(
+            _update_generation_progress,
+            db_factory,
+            task_id,
+            bank_id,
+            processed,
+            total,
+            generated,
+            message,
+        )
+
+    questions = await generate_questions_from_chunks(
+        chunks=chunks,
+        bank_id=bank_id,
+        progress_callback=on_progress,
+        num_direct=num_direct,
+        num_logic=num_logic,
+        max_questions=settings.MAX_GENERATED_QUESTIONS,
+    )
+    await asyncio.to_thread(_check_generation_active, db_factory, task_id, bank_id)
+    if not questions:
+        raise ValueError("未能生成有效题目，请更换资料或稍后重试")
+
+    await asyncio.to_thread(
+        _set_generation_message,
+        db_factory,
+        task_id,
+        bank_id,
+        "正在整理知识点标签...",
+    )
+    questions = await classify_questions_tags(questions)
+    await asyncio.to_thread(
+        _persist_generated_questions,
+        db_factory,
+        task_id,
+        bank_id,
+        questions,
+    )
+
+
 async def run_generate_task(
     task_id: str,
     bank_id: int,
@@ -492,128 +765,38 @@ async def run_generate_task(
     num_direct: int = 3,
     num_logic: int = 2,
 ):
-    """
-    后台异步出题任务主流程
-    db_factory: 无参可调用，返回新的 DB Session
-    """
-    db: Session = db_factory()
+    """Run one bounded generation job without blocking the API event loop."""
     try:
-        def ensure_bank_active() -> None:
-            db.expire_all()
-            status = db.query(QuestionBank.status).filter(
-                QuestionBank.id == bank_id,
-            ).scalar()
-            if status is None or status in (BankStatus.deleted, BankStatus.deleted.value):
-                raise GenerationCancelled("题库已删除")
-
-        task = db.query(GenerateTask).filter(GenerateTask.id == task_id).first()
-        if not task:
-            return
-        ensure_bank_active()
-
-        task.status = TaskStatus.running
-        task.message = "正在解析文档..."
-        db.commit()
-
-        # 1. 解析文档
-        text = await parse_document(file_path, source_type)
-        ensure_bank_active()
-        if not text.strip():
-            raise ValueError("文档内容为空，请检查文件")
-
-        # 2. 分块
-        chunks = split_text_into_chunks(text)
-        if not chunks:
-            raise ValueError("文档内容不足，无法生成题目")
-        if len(chunks) > settings.MAX_GENERATION_CHUNKS:
-            raise ValueError(
-                f"文档内容过长，最多支持 {settings.MAX_GENERATION_CHUNKS} 个文本分块"
-            )
-        task.total_chunks = len(chunks)
-        task.message = f"文档已分为 {len(chunks)} 个段落，开始出题..."
-        db.commit()
-
-        # 3. 进度回调
-        async def on_progress(processed: int, total: int, generated: int, msg: str):
-            ensure_bank_active()
-            t = db.query(GenerateTask).filter(GenerateTask.id == task_id).first()
-            if t:
-                t.processed_chunks = processed
-                t.generated_count = generated
-                t.progress = int(processed / total * 90)
-                t.message = msg
-                db.commit()
-
-        # 4. AI 出题
-        questions = await generate_questions_from_chunks(
-            chunks=chunks,
-            bank_id=bank_id,
-            progress_callback=on_progress,
-            num_direct=num_direct,
-            num_logic=num_logic,
-            max_questions=settings.MAX_GENERATED_QUESTIONS,
-        )
-        ensure_bank_active()
-
-        if not questions:
-            raise ValueError("未能生成有效题目，请更换资料或稍后重试")
-
-        # 5. 补全标签
-        task.message = "正在整理知识点标签..."
-        db.commit()
-        questions = await classify_questions_tags(questions)
-        ensure_bank_active()
-
-        # 6. 批量写入数据库
-        for i, q in enumerate(questions):
-            q["order_index"] = i
-            db.add(Question(**q))
-
-        db.flush()
-        updated = db.query(QuestionBank).filter(
-            QuestionBank.id == bank_id,
-        QuestionBank.status == BankStatus.ready,
-        ).update(
-            {
-                QuestionBank.total_count: len(questions),
-                QuestionBank.status: BankStatus.ready,
-            },
-            synchronize_session=False,
-        )
-        if updated != 1:
-            raise GenerationCancelled("题库已删除")
-
-        task.status = TaskStatus.done
-        task.progress = 100
-        task.generated_count = len(questions)
-        task.message = f"出题完成！共生成 {len(questions)} 道题目"
-        db.commit()
-
+        async with asyncio.timeout(settings.GENERATION_TIMEOUT_SECONDS):
+            async with _generation_slots:
+                await _run_generation_pipeline(
+                    task_id,
+                    bank_id,
+                    file_path,
+                    source_type,
+                    db_factory,
+                    num_direct,
+                    num_logic,
+                )
     except GenerationCancelled:
-        db.rollback()
-        task = db.query(GenerateTask).filter(GenerateTask.id == task_id).first()
-        if task:
-            task.status = TaskStatus.failed
-            task.error = "bank deleted"
-            task.message = "题库已删除，生成已停止"
-            db.commit()
-    except Exception as e:
-        logger.error(f"出题任务 {task_id} 失败: {e}", exc_info=True)
-        db.rollback()
-        task = db.query(GenerateTask).filter(GenerateTask.id == task_id).first()
-        if task:
-            task.status = TaskStatus.failed
-            # Keep provider paths, request IDs and SQL details in logs only.
-            task.error = "生成失败，请更换资料或稍后重试"
-            task.message = "出题失败，请重试"
-            bank = db.query(QuestionBank).filter(QuestionBank.id == bank_id).first()
-            if bank and bank.status != BankStatus.deleted:
-                bank.status = BankStatus.deleted
-            db.commit()
+        await asyncio.to_thread(_mark_generation_cancelled, db_factory, task_id)
+    except TimeoutError:
+        logger.error("出题任务 %s 超过 %s 秒", task_id, settings.GENERATION_TIMEOUT_SECONDS)
+        await asyncio.to_thread(
+            _mark_generation_failed,
+            db_factory,
+            task_id,
+            bank_id,
+            "出题超时，请缩小资料后重试",
+        )
+    except Exception as exc:
+        logger.error("出题任务 %s 失败: %s", task_id, exc, exc_info=True)
+        await asyncio.to_thread(
+            _mark_generation_failed,
+            db_factory,
+            task_id,
+            bank_id,
+            "出题失败，请重试",
+        )
     finally:
-        db.close()
-        if source_type != "url" and file_path and os.path.isfile(file_path):
-            try:
-                os.remove(file_path)
-            except OSError:
-                logger.warning("无法清理源文件 %s", file_path, exc_info=True)
+        await asyncio.to_thread(_cleanup_uploaded_source, file_path, source_type)

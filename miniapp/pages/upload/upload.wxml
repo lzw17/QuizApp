@@ -74,6 +74,10 @@
     </view>
   </view>
 
+  <view class="ai-privacy-note">
+    资料内容会发送给第三方 AI 用于出题；网页链接会通过 Jina Reader 提取正文，PDF 可能通过 MinerU 解析。请勿上传敏感或无权处理的内容。
+  </view>
+
   <!-- 提交按钮 -->
   <view class="submit-area safe-bottom">
     <button class="btn-primary submit-btn" bindtap="submit" loading="{{submitting}}" disabled="{{submitting}}">

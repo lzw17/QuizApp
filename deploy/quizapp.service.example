@@ -1,17 +1,23 @@
 [Unit]
 Description=智题学习笔记 FastAPI backend
 After=network.target mysql.service
+Wants=mysql.service
 
 [Service]
+Type=simple
 User=quizapp
 Group=quizapp
 WorkingDirectory=/opt/quizapp/backend
 EnvironmentFile=/opt/quizapp/backend/.env
-ExecStart=/opt/quizapp/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=127.0.0.1
+ExecStart=/opt/quizapp/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=always
-RestartSec=5
+RestartSec=3
 NoNewPrivileges=true
 PrivateTmp=true
+ProtectSystem=full
+StateDirectory=quizapp
+StateDirectoryMode=0750
+ReadWritePaths=/var/lib/quizapp
 
 [Install]
 WantedBy=multi-user.target

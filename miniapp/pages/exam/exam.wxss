@@ -37,6 +37,7 @@
 
 /* 题目区（复用 practice 样式，减少重复） */
 .question-card { flex: 1; margin: 24rpx 24rpx 160rpx; background: #fff; border-radius: 24rpx; padding: 36rpx; box-shadow: var(--shadow); }
+.aigc-badge { margin-bottom: 16rpx; }
 .q-num { font-size: 26rpx; color: #888; margin-bottom: 8rpx; }
 .q-type-tag { display: inline-block; padding: 6rpx 18rpx; border-radius: 20rpx; font-size: 22rpx; font-weight: 600; margin-bottom: 20rpx; }
 .q-type-tag.single { background: #E8F0FF; color: #4F7EFF; }

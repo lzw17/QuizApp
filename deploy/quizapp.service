@@ -4,9 +4,10 @@
 #   1. 假设项目放在 /opt/quizapp
 #      cd /opt/quizapp/backend
 #      python3 -m venv .venv
-#      .venv/bin/pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+#      .venv/bin/pip install -r requirements-prod.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 #   2. cp .env.production.example .env 并填写完整
-#      （DATABASE_URL / REDIS_URL 中的主机改为 127.0.0.1）
+#      （DATABASE_URL 中的主机改为 127.0.0.1，UPLOAD_DIR 改为
+#       /var/lib/quizapp/uploads）
 #   3. 修改下方 User / 路径后：
 #      sudo cp ../deploy/quizapp.service /etc/systemd/system/
 #      sudo systemctl daemon-reload
@@ -17,7 +18,7 @@
 
 [Unit]
 Description=智题学习笔记 FastAPI backend
-After=network.target mysql.service redis.service
+After=network.target mysql.service
 Wants=mysql.service
 
 [Service]
@@ -33,7 +34,9 @@ RestartSec=3
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ReadWritePaths=/opt/quizapp/uploads
+StateDirectory=quizapp
+StateDirectoryMode=0750
+ReadWritePaths=/var/lib/quizapp
 
 [Install]
 WantedBy=multi-user.target

@@ -37,4 +37,7 @@ backend/uploads/
 .DS_Store
 
 # 微信开发者工具
-miniapp/project.private.config.json
+/project.private.config.json
+/miniapp/project.private.config.json
+
+/.workbuddy/

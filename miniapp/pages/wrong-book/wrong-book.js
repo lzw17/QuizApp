@@ -93,42 +93,28 @@ Page({
   practiceWrong() {
     const { filterBankId, wrongList } = this.data;
     if (!wrongList.length) return;
-    if (!filterBankId && new Set(wrongList.map(item => item.bank_id)).size > 1) {
-      wx.showToast({ title: '请先选择题库', icon: 'none' });
-      return;
-    }
-    const bankId = filterBankId || wrongList[0].bank_id;
-    wx.navigateTo({ url: `/pages/practice/practice?bank_id=${bankId}&mode=wrong` });
+    const bankQuery = filterBankId ? `&bank_id=${filterBankId}` : '';
+    wx.navigateTo({ url: `/pages/practice/practice?mode=wrong${bankQuery}` });
   },
 
   memorizeWrong() {
     const { filterBankId, wrongList } = this.data;
     if (!wrongList.length) return;
-    if (!filterBankId && new Set(wrongList.map(item => item.bank_id)).size > 1) {
-      wx.showToast({ title: '请先选择题库', icon: 'none' });
-      return;
-    }
-    const bankId = filterBankId || wrongList[0].bank_id;
-    wx.navigateTo({ url: `/pages/practice/practice?bank_id=${bankId}&mode=memorize&source=wrong` });
+    const bankQuery = filterBankId ? `&bank_id=${filterBankId}` : '';
+    wx.navigateTo({ url: `/pages/practice/practice?mode=memorize&source=wrong${bankQuery}` });
   },
 
   practiceStar() {
-    const { starList } = this.data;
+    const { filterBankId, starList } = this.data;
     if (!starList.length) return;
-    if (new Set(starList.map(item => item.bank_id)).size > 1) {
-      wx.showToast({ title: '请先选择题库', icon: 'none' });
-      return;
-    }
-    wx.navigateTo({ url: `/pages/practice/practice?bank_id=${starList[0].bank_id}&mode=starred` });
+    const bankQuery = filterBankId ? `&bank_id=${filterBankId}` : '';
+    wx.navigateTo({ url: `/pages/practice/practice?mode=starred${bankQuery}` });
   },
 
   memorizeStar() {
-    const { starList } = this.data;
+    const { filterBankId, starList } = this.data;
     if (!starList.length) return;
-    if (new Set(starList.map(item => item.bank_id)).size > 1) {
-      wx.showToast({ title: '请先选择题库', icon: 'none' });
-      return;
-    }
-    wx.navigateTo({ url: `/pages/practice/practice?bank_id=${starList[0].bank_id}&mode=memorize&source=starred` });
+    const bankQuery = filterBankId ? `&bank_id=${filterBankId}` : '';
+    wx.navigateTo({ url: `/pages/practice/practice?mode=memorize&source=starred${bankQuery}` });
   },
 });

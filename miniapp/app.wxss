@@ -90,6 +90,16 @@ page {
 .tag-danger  { background: #FFF1F1; color: var(--color-danger); }
 .tag-warning { background: #FFF7E0; color: var(--color-warning); }
 
+.aigc-badge {
+  display: inline-block;
+  padding: 5rpx 12rpx;
+  border-radius: 8rpx;
+  background: #FFF7E0;
+  color: #8A6214;
+  font-size: 20rpx;
+  line-height: 1.4;
+}
+
 /* 难度星 */
 .difficulty-dot {
   display: inline-block;
