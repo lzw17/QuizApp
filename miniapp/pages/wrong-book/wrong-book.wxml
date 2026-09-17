@@ -1,8 +1,8 @@
 <view class="container">
   <!-- 顶部 tab：错题 / 收藏 -->
   <view class="tabs">
-    <view class="tab {{activeTab === 'wrong' ? 'active' : ''}}" bindtap="switchTab" data-tab="wrong">错题本 {{wrongList.length > 0 ? '(' + wrongList.length + ')' : ''}}</view>
-    <view class="tab {{activeTab === 'star' ? 'active' : ''}}" bindtap="switchTab" data-tab="star">收藏夹 {{starList.length > 0 ? '(' + starList.length + ')' : ''}}</view>
+    <view class="tab {{activeTab === 'wrong' ? 'active' : ''}}" bindtap="switchTab" data-tab="wrong">错题本 {{wrongTotal > 0 ? '(' + wrongTotal + ')' : ''}}</view>
+    <view class="tab {{activeTab === 'star' ? 'active' : ''}}" bindtap="switchTab" data-tab="star">收藏夹 {{starTotal > 0 ? '(' + starTotal + ')' : ''}}</view>
   </view>
 
   <!-- 题库筛选 -->
@@ -21,7 +21,7 @@
   <!-- 错题列表 -->
   <view wx:if="{{activeTab === 'wrong'}}">
     <view wx:if="{{wrongList.length > 0}}">
-      <view class="tip-bar">共 {{wrongList.length}} 道错题 · <text class="tip-link" bindtap="practiceWrong">一键练错题 ›</text></view>
+      <view class="tip-bar">共 {{wrongTotal}} 道错题 · <text class="tip-link" bindtap="practiceWrong">一键练错题 ›</text></view>
       <view class="tip-bar"><text class="tip-link" bindtap="memorizeWrong">背题模式 ›</text></view>
       <view class="q-card card" wx:for="{{wrongList}}" wx:key="record_id">
         <view class="qc-header">
@@ -42,6 +42,7 @@
           <text wx:for="{{item.question.tags}}" wx:key="*this" wx:for-item="tag" class="q-tag">{{tag}}</text>
         </view>
       </view>
+      <view class="loading-more" wx:if="{{wrongLoadingMore}}">正在加载...</view>
     </view>
     <view class="empty-state" wx:else>
       <text> 暂无错题，继续保持！</text>
@@ -51,7 +52,7 @@
   <!-- 收藏列表 -->
   <view wx:if="{{activeTab === 'star'}}">
     <view wx:if="{{starList.length > 0}}">
-      <view class="tip-bar">共 {{starList.length}} 道收藏 · <text class="tip-link" bindtap="practiceStar">一键练收藏 ›</text></view>
+      <view class="tip-bar">共 {{starTotal}} 道收藏 · <text class="tip-link" bindtap="practiceStar">一键练收藏 ›</text></view>
       <view class="tip-bar"><text class="tip-link" bindtap="memorizeStar">背题模式 ›</text></view>
       <view class="q-card card" wx:for="{{starList}}" wx:key="id">
         <view class="qc-header">
@@ -67,6 +68,7 @@
           <text class="exp-label">解析：</text>{{item.explanation}}
         </view>
       </view>
+      <view class="loading-more" wx:if="{{starLoadingMore}}">正在加载...</view>
     </view>
     <view class="empty-state" wx:else>
       <text>还没有收藏，练习时点 ☆ 收藏难题</text>

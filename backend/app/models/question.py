@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Float, Boolean, DateTime, JSON, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, Text, Float, DateTime, JSON, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
@@ -92,4 +92,15 @@ class ExamSession(Base):
     question_ids = Column(JSON, nullable=False, default=list)
     expires_at = Column(DateTime, nullable=False)
     submitted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+
+class ExamSubmission(Base):
+    """Persisted exam result used to make submission retries idempotent."""
+    __tablename__ = "exam_submissions"
+
+    session_id = Column(String(64), ForeignKey("exam_sessions.id"), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    bank_id = Column(Integer, ForeignKey("question_banks.id"), nullable=False, index=True)
+    result = Column(JSON, nullable=False)
     created_at = Column(DateTime, server_default=func.now())

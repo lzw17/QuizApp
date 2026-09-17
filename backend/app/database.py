@@ -1,19 +1,32 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy import inspect, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from .config import settings
 
-# SQLite 需要特殊连接参数，MySQL 不需要
-connect_args = {}
-if settings.DATABASE_URL.startswith("sqlite"):
-    connect_args = {"check_same_thread": False}
+def _engine_options(database_url: str) -> dict:
+    options = {"echo": settings.DEBUG}
+    if database_url.startswith("sqlite"):
+        options["connect_args"] = {"check_same_thread": False}
+    else:
+        # MySQL closes idle connections. Check pooled connections before use
+        # and recycle them before the server's typical idle timeout.
+        options.update(pool_pre_ping=True, pool_recycle=1800)
+    return options
 
-engine = create_engine(
-    settings.DATABASE_URL,
-    connect_args=connect_args,
-    echo=settings.DEBUG,
-)
+
+engine = create_engine(settings.DATABASE_URL, **_engine_options(settings.DATABASE_URL))
+
+
+if not settings.DATABASE_URL.startswith("sqlite"):
+    @event.listens_for(engine, "connect")
+    def _set_mysql_session_timezone(dbapi_connection, _connection_record):
+        """Keep server defaults and explicit application timestamps in UTC."""
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("SET time_zone = '+00:00'")
+        finally:
+            cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

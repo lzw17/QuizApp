@@ -13,13 +13,13 @@
   <view class="section card">
     <view class="section-title">我们如何使用</view>
     <view class="paragraph">数据仅用于登录鉴权、题库生成、刷题判分、错题复习和学习统计，不会在小程序内公开你的个人身份信息。</view>
-    <view class="paragraph">上传资料内容会传输给第三方 AI 服务商 DeepSeek 用于生成题目；输入网页链接时，链接地址会发送给 Jina Reader 用于提取网页正文；启用云端 PDF 解析时，PDF 内容还会传输给 MinerU 用于文档解析。</view>
+    <view class="paragraph">上传资料内容会传输给 DeepSeek（杭州深度求索人工智能基础技术研究有限公司）用于生成题目；输入网页链接时，链接地址会发送给 Jina Reader（Jina AI GmbH）用于提取网页正文；启用云端 PDF 解析时，PDF 内容还会传输给 OpenDataLab（上海人工智能实验室）提供的 MinerU 服务用于文档解析。</view>
     <view class="paragraph">上传的源文件仅在生成任务期间临时保存，任务完成、失败或超时后会自动删除。请勿上传包含敏感个人信息或你无权处理的内容。</view>
   </view>
 
   <view class="section card">
     <view class="section-title">你的权利</view>
-    <view class="paragraph">你可以在“我的”页面修改昵称、清理本地缓存或注销账号。注销后，服务端会撤销登录凭证、匿名化账号、删除你创建的题库，并清理作答记录、收藏和进度。</view>
+    <view class="paragraph">你可以在“我的”页面修改昵称、清理本地缓存或注销账号。注销后，服务端会撤销登录凭证、匿名化账号、清除你创建题库中的名称、来源和题目内容，并清理作答记录、收藏和进度；仅保留不含原始内容的删除占位记录以维护数据库关联。</view>
   </view>
 
   <view class="footer">如需反馈隐私问题，请通过小程序运营者公布的联系方式联系。</view>

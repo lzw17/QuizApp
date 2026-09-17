@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Float, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, JSON, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
@@ -12,7 +12,7 @@ class User(Base):
     nickname = Column(String(100), default="", comment="昵称")
     avatar = Column(String(500), default="", comment="头像 URL")
     is_admin = Column(Boolean, default=False)
-    is_active = Column(Boolean, default=True, nullable=False, comment="璐︽埛鏄惁鏈夋晥")
+    is_active = Column(Boolean, default=True, nullable=False, comment="账号是否有效")
     token_version = Column(Integer, default=0, nullable=False, comment="服务端撤销登录态的版本号")
     created_at = Column(DateTime, server_default=func.now())
     last_login = Column(DateTime, server_default=func.now(), onupdate=func.now())

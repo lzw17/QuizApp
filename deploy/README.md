@@ -1,5 +1,12 @@
 # Production deployment
 
+The live `api.quizapp.chat` service uses the Baota direct-deployment layout,
+not Docker or the systemd example below. Follow
+[`docs/server-deploy-steps.md`](../docs/server-deploy-steps.md) and
+[`docs/nginx/baota-quizapp-backend.conf`](../docs/nginx/baota-quizapp-backend.conf)
+for production. The remaining files in this directory are alternative reference
+deployments and must not be mixed into the live Baota configuration.
+
 This project expects the backend to run behind Nginx on an HTTPS domain. The
 production example domain is `api.quizapp.chat`; verify DNS, certificate and
 WeChat legal domains before release, and replace every `<...>` placeholder.
@@ -27,24 +34,34 @@ DATABASE_URL=mysql+pymysql://quizapp:<password>@127.0.0.1:3306/quiz_app
 PUBLIC_BASE_URL=https://api.quizapp.chat
 UPLOAD_DIR=/var/lib/quizapp/uploads
 ALLOWED_ORIGINS=https://servicewechat.com
-DEEPSEEK_API_KEY=<deepseek key>
+LLM_API_KEY=<model provider key>
+LLM_BASE_URL=https://provider.example.com/v1
+LLM_MODEL=<model id>
+LLM_TIMEOUT_SECONDS=60
+LLM_MAX_RETRIES=2
+LLM_MAX_TOKENS=4096
 MAX_ACTIVE_GENERATION_TASKS=2
 MAX_CONCURRENT_GENERATION_TASKS=2
-GENERATION_TIMEOUT_SECONDS=900
+GENERATION_TIMEOUT_SECONDS=1800
+GENERATION_CHUNK_SIZE=1500
+GENERATION_CHUNK_OVERLAP=150
+GENERATION_CHUNK_CONCURRENCY=3
 ```
 
 4. Install `requirements-prod.txt` in `/opt/quizapp/backend/.venv`. Back up the database,
    inspect duplicate `(user_id, bank_id)` rows, and apply
    `backend/migrations/001_user_progress_unique_mysql.sql` and
    `backend/migrations/002_user_token_version_mysql.sql`, and
-   `backend/migrations/003_user_account_deletion_mysql.sql` before starting
+   `backend/migrations/003_user_account_deletion_mysql.sql` and
+   `backend/migrations/004_exam_submissions_mysql.sql` before starting
    the service. `create_all()` creates missing tables but does not alter existing
    production tables.
 5. Install `quizapp.service` as a systemd unit and start it. The unit creates
    `/var/lib/quizapp`; the application creates its `uploads/` and `avatars/`
    subdirectories as the `quizapp` service user.
-6. For the Docker layout (Docker Compose v2.24+), keep the production
-   template's `DATABASE_URL` host as `mysql` and `UPLOAD_DIR=/app/uploads`.
+6. For the Docker layout (Docker Compose v2.24+), override the Baota-oriented
+   production template: use `mysql` as the `DATABASE_URL` host and set
+   `UPLOAD_DIR=/app/uploads`.
    The normal Nginx config expects an existing certificate
    in `deploy/certs/`. On a new host, first create the ACME webroot and start the
    HTTP-only bootstrap config:
@@ -71,10 +88,11 @@ with production reload enabled.
 In the Mini Program console, add `https://api.quizapp.chat` to request and
 uploadFile legal domains. Use the same HTTPS origin in `miniapp/app.js`, build
 the `miniapp/` directory, test the experience version, then submit for review.
-The User Privacy Protection Guide must also disclose that uploaded file or URL
-content is sent to DeepSeek for question generation, URL addresses are sent to
-Jina Reader for webpage extraction, and, when enabled, PDFs are sent to MinerU
-for cloud parsing. Keep the provider list aligned with production config.
+The User Privacy Protection Guide must also disclose the full legal entity of
+the configured AI provider that receives uploaded content for question
+generation. URL addresses are sent to Jina Reader for webpage extraction and,
+when enabled, PDFs are sent to MinerU for cloud parsing. Keep the provider list
+aligned with production config.
 
 ## Smoke checks
 

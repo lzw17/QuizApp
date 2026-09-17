@@ -9,7 +9,7 @@ GET  /api/progress/{bank_id}  获取用户在该题库的进度
 GET  /api/stats               获取个人学习统计
 """
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from ..database import get_db
 from ..auth import get_current_user
-from ..models.question import Question, QuestionBank, BankStatus, ExamSession
+from ..models.question import Question, QuestionBank, ExamSession, ExamSubmission
 from ..models.user import AnswerRecord, User, UserProgress
 from ..schemas.user import AnswerSubmit, AnswerResult, UserStatsOut, UserProgressOut
 from ..schemas.question import QuestionPublicOut
@@ -27,6 +27,8 @@ from ..services.question_service import (
     get_wrong_questions, get_user_stats,
     evaluate_answer, get_review_questions,
 )
+from ..services.bank_access import apply_bank_access, get_accessible_bank
+from ..utils.time import local_day_utc_bounds, local_today, utc_now, utc_timestamp_to_local_date
 
 router = APIRouter(prefix="/api", tags=["practice"])
 
@@ -43,7 +45,7 @@ def answer_question(
 ):
     """提交单题答案，返回是否正确 + 解析"""
     try:
-        return submit_answer(db, data, current_user.id)
+        return submit_answer(db, data, current_user)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -76,6 +78,7 @@ class ExamStartResult(BaseModel):
     session_id: str
     bank_id: int
     expires_at: datetime
+    duration_seconds: int
     questions: List[QuestionPublicOut]
 
 
@@ -105,16 +108,23 @@ def submit_exam(
     db: Session = Depends(get_db),
 ):
     """校验服务端考试实例后批量交卷判分。"""
-    session = db.query(ExamSession).filter(
+    get_accessible_bank(db, data.bank_id, current_user)
+    session_query = db.query(ExamSession).filter(
         ExamSession.id == data.session_id,
         ExamSession.user_id == current_user.id,
         ExamSession.bank_id == data.bank_id,
-    ).first()
+    )
+    if db.bind and db.bind.dialect.name != "sqlite":
+        session_query = session_query.with_for_update()
+    session = session_query.first()
     if not session:
         raise HTTPException(400, "考试实例不存在或不属于当前用户")
     if session.submitted_at:
-        raise HTTPException(409, "该考试已经提交")
-    if session.expires_at < datetime.utcnow():
+        submission = db.get(ExamSubmission, session.id)
+        if submission:
+            return ExamSubmitResult.model_validate(submission.result)
+        raise HTTPException(409, "该考试已经提交，历史成绩暂不可恢复")
+    if session.expires_at < utc_now():
         raise HTTPException(400, "考试已超时，请重新开始")
 
     expected_ids = [int(item) for item in (session.question_ids or [])]
@@ -144,6 +154,21 @@ def submit_exam(
         except ValueError as exc:
             raise HTTPException(400, str(exc))
 
+    claimed_at = utc_now()
+    claimed = db.query(ExamSession).filter(
+        ExamSession.id == session.id,
+        ExamSession.submitted_at.is_(None),
+    ).update(
+        {ExamSession.submitted_at: claimed_at},
+        synchronize_session=False,
+    )
+    if claimed != 1:
+        db.rollback()
+        submission = db.get(ExamSubmission, session.id)
+        if submission:
+            return ExamSubmitResult.model_validate(submission.result)
+        raise HTTPException(409, "该考试已经提交")
+
     results = []
     correct_count = 0
 
@@ -156,7 +181,7 @@ def submit_exam(
             mode="exam",
         )
         try:
-            result = submit_answer(db, submit, current_user.id, commit=False)
+            result = submit_answer(db, submit, current_user, commit=False)
             question = db.query(Question).filter(Question.id == item.question_id).first()
             results.append(ExamResultItem(
                 question_id=item.question_id,
@@ -172,13 +197,9 @@ def submit_exam(
         except ValueError as exc:
             raise HTTPException(400, str(exc))
 
-    session.submitted_at = datetime.utcnow()
-    db.commit()
-
     total = len(results)
     score = round(correct_count / total * 100, 1) if total > 0 else 0.0
-
-    return ExamSubmitResult(
+    submission_result = ExamSubmitResult(
         total=total,
         correct=correct_count,
         wrong=total - correct_count,
@@ -186,6 +207,14 @@ def submit_exam(
         passed=score >= 60.0,
         results=results,
     )
+    db.add(ExamSubmission(
+        session_id=session.id,
+        user_id=current_user.id,
+        bank_id=data.bank_id,
+        result=submission_result.model_dump(mode="json"),
+    ))
+    db.commit()
+    return submission_result
 
 
 @router.post("/exam/start", response_model=ExamStartResult)
@@ -195,12 +224,7 @@ def start_exam(
     db: Session = Depends(get_db),
 ):
     """创建服务端考试实例并返回不含答案的题目。"""
-    bank = db.query(QuestionBank).filter(
-        QuestionBank.id == data.bank_id,
-        QuestionBank.status == BankStatus.ready,
-    ).first()
-    if not bank:
-        raise HTTPException(404, "题库不存在")
+    bank = get_accessible_bank(db, data.bank_id, current_user)
     questions = db.query(Question).filter(
         Question.bank_id == data.bank_id,
         Question.status == "active",
@@ -215,7 +239,9 @@ def start_exam(
     if not questions:
         raise HTTPException(400, "题库暂无可用题目")
     session_id = uuid.uuid4().hex
-    expires_at = datetime.utcnow() + timedelta(minutes=max(10, int(len(questions) * 1.5) + 5))
+    duration_seconds = max(10 * 60, len(questions) * 90)
+    # Keep a short server-side grace period for the final request in flight.
+    expires_at = utc_now() + timedelta(seconds=duration_seconds + 30)
     session = ExamSession(
         id=session_id,
         user_id=current_user.id,
@@ -228,7 +254,8 @@ def start_exam(
     return ExamStartResult(
         session_id=session_id,
         bank_id=data.bank_id,
-        expires_at=expires_at,
+        expires_at=expires_at.replace(tzinfo=timezone.utc),
+        duration_seconds=duration_seconds,
         questions=questions,
     )
 
@@ -239,51 +266,30 @@ def start_exam(
 
 @router.get("/wrong-questions")
 def list_wrong_questions(
-    bank_id: Optional[int] = None,
+    bank_id: Optional[int] = Query(None, ge=1),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """获取用户错题列表（每题只显示最近一次答错）"""
-    return get_wrong_questions(db, current_user.id, bank_id)
+    return get_wrong_questions(db, current_user, bank_id, skip=skip, limit=limit)
 
 
 @router.get("/starred-questions")
 def list_starred_questions(
-    bank_id: Optional[int] = None,
+    bank_id: Optional[int] = Query(None, ge=1),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """只返回当前用户已收藏题目的复习数据（包含答案和解析）。"""
-    query = db.query(UserProgress)
-    if bank_id:
-        query = query.filter(UserProgress.bank_id == bank_id)
-    progress_list = query.filter(UserProgress.user_id == current_user.id).all()
-    result = []
-    for progress in progress_list:
-        if not progress.starred_ids:
-            continue
-        questions = db.query(Question).join(QuestionBank).filter(
-            Question.id.in_(progress.starred_ids),
-            Question.bank_id == progress.bank_id,
-            Question.status == "active",
-            QuestionBank.status == BankStatus.ready,
-        ).all()
-        by_id = {question.id: question for question in questions}
-        for question_id in progress.starred_ids:
-            question = by_id.get(question_id)
-            if question:
-                result.append({
-                    "id": question.id,
-                    "bank_id": question.bank_id,
-                    "type": question.type,
-                    "content": question.content,
-                    "options": question.options,
-                    "answer": question.answer,
-                    "explanation": question.explanation,
-                    "tags": question.tags,
-                    "difficulty": question.difficulty,
-                })
-    return result
+    if bank_id is not None:
+        get_accessible_bank(db, bank_id, current_user)
+    return get_review_questions(
+        db, current_user, bank_id, "starred", skip=skip, limit=limit
+    )
 
 
 # ──────────────────────────────────────────
@@ -294,19 +300,25 @@ def list_starred_questions(
 def list_review_questions(
     bank_id: Optional[int] = Query(None, ge=1),
     source: str = Query("wrong", pattern="^(wrong|starred)$"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=100),
+    after_id: Optional[int] = Query(None, ge=0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Return answer-bearing questions only for a user's own review set."""
     if bank_id is not None:
-        bank = db.query(QuestionBank).filter(
-            QuestionBank.id == bank_id,
-            QuestionBank.status == BankStatus.ready,
-        ).first()
-        if not bank:
-            raise HTTPException(404, "question bank not found")
+        get_accessible_bank(db, bank_id, current_user)
     try:
-        return get_review_questions(db, current_user.id, bank_id, source)
+        return get_review_questions(
+            db,
+            current_user,
+            bank_id,
+            source,
+            skip=skip,
+            limit=limit,
+            after_id=after_id,
+        )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
@@ -318,7 +330,7 @@ def get_daily_question(
     db: Session = Depends(get_db),
 ):
     """Pick a deterministic question for the current day and bank."""
-    bank_query = db.query(QuestionBank).filter(QuestionBank.status == BankStatus.ready)
+    bank_query = apply_bank_access(db.query(QuestionBank), current_user)
     if bank_id:
         bank_query = bank_query.filter(QuestionBank.id == bank_id)
     bank = bank_query.order_by(QuestionBank.id.desc()).first()
@@ -330,13 +342,14 @@ def get_daily_question(
     ).order_by(Question.order_index, Question.id).all()
     if not questions:
         raise HTTPException(404, "question bank is empty")
-    today = datetime.utcnow().date()
+    today = local_today()
     question = questions[int(today.strftime("%Y%m%d")) % len(questions)]
-    today_start = datetime.combine(today, datetime.min.time())
+    today_start, today_end = local_day_utc_bounds(today)
     answered = db.query(AnswerRecord.id).filter(
         AnswerRecord.user_id == current_user.id,
         AnswerRecord.question_id == question.id,
         AnswerRecord.answered_at >= today_start,
+        AnswerRecord.answered_at <= today_end,
     ).first() is not None
     return {
         "date": today.isoformat(),
@@ -354,9 +367,9 @@ def get_study_report(
     db: Session = Depends(get_db),
 ):
     """Return daily activity, accuracy trend and weak knowledge tags."""
-    today = datetime.utcnow().date()
+    today = local_today()
     start_date = today - timedelta(days=days - 1)
-    start_at = datetime.combine(start_date, datetime.min.time())
+    start_at, _ = local_day_utc_bounds(start_date)
     records = db.query(AnswerRecord).filter(
         AnswerRecord.user_id == current_user.id,
         AnswerRecord.answered_at >= start_at,
@@ -370,7 +383,7 @@ def get_study_report(
     by_id = {question.id: question for question in questions}
     weak_tags = {}
     for record in records:
-        current_date = (record.answered_at or datetime.utcnow()).date()
+        current_date = utc_timestamp_to_local_date(record.answered_at or utc_now())
         if current_date not in daily:
             continue
         daily[current_date]["total"] += 1
@@ -409,7 +422,7 @@ def star_question(
     db: Session = Depends(get_db),
 ):
     try:
-        is_starred = toggle_star(db, current_user.id, data.bank_id, data.question_id)
+        is_starred = toggle_star(db, current_user, data.bank_id, data.question_id)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     return {"is_starred": is_starred, "question_id": data.question_id}
@@ -422,6 +435,7 @@ def star_question(
 class ProgressUpdateRequest(BaseModel):
     bank_id: int
     position: int = Field(ge=0)
+    reset: bool = False
 
 
 @router.post("/progress")
@@ -433,7 +447,13 @@ def update_progress(
     if data.position < 0:
         raise HTTPException(400, "进度位置不能为负数")
     try:
-        update_progress_position(db, current_user.id, data.bank_id, data.position)
+        update_progress_position(
+            db,
+            current_user,
+            data.bank_id,
+            data.position,
+            reset=data.reset,
+        )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     return {"message": "进度已保存"}
@@ -445,12 +465,7 @@ def get_progress(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    bank = db.query(QuestionBank.id).filter(
-        QuestionBank.id == bank_id,
-        QuestionBank.status == BankStatus.ready,
-    ).first()
-    if not bank:
-        raise HTTPException(404, "题库不存在")
+    get_accessible_bank(db, bank_id, current_user)
 
     progress = db.query(UserProgress).filter(
         UserProgress.user_id == current_user.id,

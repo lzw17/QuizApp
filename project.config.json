@@ -14,7 +14,7 @@
     "useCompilerPlugins": false,
     "minifyWXML": true,
     "compileWorklet": false,
-    "uploadWithSourceMap": true,
+    "uploadWithSourceMap": false,
     "packNpmManually": false,
     "minifyWXSS": true,
     "localPlugins": false,
@@ -36,7 +36,7 @@
     ],
     "include": []
   },
-  "appid": "wx0bf65ee014cf8924",
+  "appid": "wxaec3bef13eea7842",
   "editorSetting": {},
   "libVersion": "3.16.1"
 }

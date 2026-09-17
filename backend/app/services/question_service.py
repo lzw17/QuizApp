@@ -1,7 +1,6 @@
 """
 题库和答题业务逻辑
 """
-import uuid
 import asyncio
 import logging
 import os
@@ -13,11 +12,12 @@ from sqlalchemy.exc import IntegrityError
 
 from ..models.question import QuestionBank, Question, GenerateTask, TaskStatus, BankStatus
 from ..models.user import User, UserProgress, AnswerRecord
-from ..schemas.question import QuestionBankCreate, QuestionCreate
 from ..schemas.user import AnswerSubmit, AnswerResult
 from ..config import settings
 from ..services.doc_parser import parse_document, split_text_into_chunks
 from ..services.ai_engine import generate_questions_from_chunks, classify_questions_tags
+from ..services.bank_access import apply_bank_access
+from ..utils.time import local_day_utc_bounds, local_today, utc_now, utc_timestamp_to_local_date
 
 logger = logging.getLogger(__name__)
 _generation_slots = asyncio.Semaphore(settings.MAX_CONCURRENT_GENERATION_TASKS)
@@ -83,96 +83,50 @@ def _get_or_create_progress(db: Session, user_id: int, bank_id: int) -> UserProg
     return progress
 
 
-# ──────────────────────────────────────────
-#  题库 CRUD
-# ──────────────────────────────────────────
-
-def create_bank(db: Session, data: QuestionBankCreate, created_by: str = "") -> QuestionBank:
-    bank = QuestionBank(
-        name=data.name,
-        description=data.description,
-        category=data.category,
-        status=BankStatus.pending,
-        created_by=created_by,
-    )
-    db.add(bank)
-    db.commit()
-    db.refresh(bank)
-    return bank
-
-
-def get_banks(db: Session, skip: int = 0, limit: int = 20) -> List[QuestionBank]:
-    return db.query(QuestionBank).filter(
-        QuestionBank.status == BankStatus.ready
-    ).order_by(QuestionBank.id.desc()).offset(skip).limit(limit).all()
-
-
-def get_bank(db: Session, bank_id: int) -> Optional[QuestionBank]:
-    return db.query(QuestionBank).filter(QuestionBank.id == bank_id).first()
-
-
-# ──────────────────────────────────────────
-#  题目查询
-# ──────────────────────────────────────────
-
-def get_questions(
+def get_wrong_questions(
     db: Session,
-    bank_id: int,
-    mode: str = "sequential",
-    tag: Optional[str] = None,
-    difficulty: Optional[int] = None,
+    user: User,
+    bank_id: Optional[int] = None,
+    *,
     skip: int = 0,
-    limit: int = 20,
-) -> List[Question]:
-    query = db.query(Question).join(QuestionBank).filter(
-        Question.bank_id == bank_id,
-        Question.status == "active",
-        QuestionBank.status == BankStatus.ready,
-    )
-    if tag:
-        query = query.filter(Question.tags.contains(f'"{tag}"', autoescape=True))
-    if difficulty:
-        query = query.filter(Question.difficulty == difficulty)
-
-    if mode == "random":
-        query = query.order_by(sa_func.random())
-    else:
-        query = query.order_by(Question.order_index)
-
-    return query.offset(skip).limit(limit).all()
-
-
-def get_wrong_questions(db: Session, user_id: int, bank_id: Optional[int] = None) -> List[dict]:
+    limit: int = 50,
+) -> List[dict]:
     """获取用户错题，每道题只取最近一次错误记录"""
-    latest = get_latest_answer_records(db, user_id, bank_id)
+    latest = get_latest_answer_records(db, user.id, bank_id)
     unique = [record for record in latest.values() if not record.is_correct]
     unique.sort(key=lambda record: record.answered_at or datetime.min, reverse=True)
 
-    results = []
-    for record in unique[:100]:
-        q = db.query(Question).join(QuestionBank).filter(
-            Question.id == record.question_id,
+    question_ids = [record.question_id for record in unique]
+    questions = []
+    if question_ids:
+        query = db.query(Question).join(QuestionBank).filter(
+            Question.id.in_(question_ids),
             Question.status == "active",
-            QuestionBank.status == BankStatus.ready,
-        ).first()
-        if q:
-            results.append({
-                "record_id": record.id,
-                "question_id": record.question_id,
-                "bank_id": record.bank_id,
-                "user_answer": record.user_answer,
-                "answered_at": record.answered_at.isoformat(),
-                "question": {
-                    "id": q.id,
-                    "type": q.type,
-                    "content": q.content,
-                    "options": q.options,
-                    "answer": q.answer,
-                    "explanation": q.explanation,
-                    "tags": q.tags,
-                    "difficulty": q.difficulty,
-                },
-            })
+        )
+        questions = apply_bank_access(query, user).all()
+    by_id = {question.id: question for question in questions}
+    visible = [record for record in unique if record.question_id in by_id]
+
+    results = []
+    for record in visible[skip:skip + limit]:
+        q = by_id[record.question_id]
+        results.append({
+            "record_id": record.id,
+            "question_id": record.question_id,
+            "bank_id": record.bank_id,
+            "user_answer": record.user_answer,
+            "answered_at": record.answered_at.isoformat(),
+            "question": {
+                "id": q.id,
+                "type": q.type,
+                "content": q.content,
+                "options": q.options,
+                "answer": q.answer,
+                "explanation": q.explanation,
+                "tags": q.tags,
+                "difficulty": q.difficulty,
+            },
+        })
     return results
 
 
@@ -245,30 +199,35 @@ def get_starred_question_ids(
 
 def get_review_questions(
     db: Session,
-    user_id: int,
+    user: User,
     bank_id: Optional[int],
     source: str,
+    *,
+    skip: int = 0,
+    limit: int = 100,
+    after_id: Optional[int] = None,
 ) -> List[dict]:
     """Return answer-bearing questions only for the user's review set."""
     if source == "wrong":
-        question_ids = get_current_wrong_question_ids(db, user_id, bank_id)
+        question_ids = get_current_wrong_question_ids(db, user.id, bank_id)
     elif source == "starred":
-        question_ids = get_starred_question_ids(db, user_id, bank_id)
+        question_ids = get_starred_question_ids(db, user.id, bank_id)
     else:
         raise ValueError("source must be wrong or starred")
 
     if not question_ids:
         return []
-    question_ids = question_ids[:100]
     query = db.query(Question).join(QuestionBank).filter(
         Question.id.in_(question_ids),
         Question.status == "active",
-        QuestionBank.status == BankStatus.ready,
     )
+    query = apply_bank_access(query, user)
     if bank_id is not None:
         query = query.filter(Question.bank_id == bank_id)
-    questions = query.all()
-    by_id = {question.id: question for question in questions}
+    if after_id is not None:
+        query = query.filter(Question.id > after_id)
+        skip = 0
+    questions = query.order_by(Question.id).offset(skip).limit(limit).all()
     return [
         {
             "id": question.id,
@@ -283,23 +242,8 @@ def get_review_questions(
             "correct_rate": question.correct_rate,
             "order_index": question.order_index,
         }
-        for question_id in question_ids
-        if (question := by_id.get(question_id)) is not None
+        for question in questions
     ]
-
-
-def get_starred_questions(db: Session, user_id: int, bank_id: int) -> List[Question]:
-    progress = db.query(UserProgress).filter(
-        UserProgress.user_id == user_id,
-        UserProgress.bank_id == bank_id,
-    ).first()
-    if not progress or not progress.starred_ids:
-        return []
-    return db.query(Question).join(QuestionBank).filter(
-        Question.id.in_(progress.starred_ids),
-        Question.status == "active",
-        QuestionBank.status == BankStatus.ready,
-    ).all()
 
 
 # ──────────────────────────────────────────
@@ -309,17 +253,17 @@ def get_starred_questions(db: Session, user_id: int, bank_id: int) -> List[Quest
 def submit_answer(
     db: Session,
     data: AnswerSubmit,
-    user_id: int,
+    user: User,
     *,
     commit: bool = True,
 ) -> AnswerResult:
     """Record one answer, optionally leaving the transaction open for a batch."""
-    question = db.query(Question).join(QuestionBank).filter(
+    query = db.query(Question).join(QuestionBank).filter(
         Question.id == data.question_id,
         Question.bank_id == data.bank_id,
         Question.status == "active",
-        QuestionBank.status == BankStatus.ready,
-    ).first()
+    )
+    question = apply_bank_access(query, user).first()
     if not question:
         raise ValueError("题目不存在或不属于该题库")
 
@@ -331,13 +275,14 @@ def submit_answer(
 
     # 写入答题记录
     record = AnswerRecord(
-        user_id=user_id,
+        user_id=user.id,
         question_id=data.question_id,
         bank_id=data.bank_id,
         user_answer=user_answer,
         is_correct=is_correct,
         time_spent=data.time_spent,
         mode=data.mode,
+        answered_at=utc_now(),
     )
     db.add(record)
 
@@ -355,7 +300,7 @@ def submit_answer(
     db.refresh(question)
 
     # 更新用户进度
-    progress = _get_or_create_progress(db, user_id, data.bank_id)
+    progress = _get_or_create_progress(db, user.id, data.bank_id)
     db.query(UserProgress).filter(UserProgress.id == progress.id).update(
         {
             UserProgress.total_answered: sa_func.coalesce(UserProgress.total_answered, 0) + 1,
@@ -376,18 +321,18 @@ def submit_answer(
     )
 
 
-def toggle_star(db: Session, user_id: int, bank_id: int, question_id: int) -> bool:
+def toggle_star(db: Session, user: User, bank_id: int, question_id: int) -> bool:
     """收藏/取消收藏，返回当前状态（True=已收藏）"""
-    question = db.query(Question).join(QuestionBank).filter(
+    query = db.query(Question).join(QuestionBank).filter(
         Question.id == question_id,
         Question.bank_id == bank_id,
         Question.status == "active",
-        QuestionBank.status == BankStatus.ready,
-    ).first()
+    )
+    question = apply_bank_access(query, user).first()
     if not question:
         raise ValueError("题目不存在或不属于该题库")
 
-    progress = _get_or_create_progress(db, user_id, bank_id)
+    progress = _get_or_create_progress(db, user.id, bank_id)
 
     starred = list(progress.starred_ids or [])
     if question_id in starred:
@@ -402,16 +347,21 @@ def toggle_star(db: Session, user_id: int, bank_id: int, question_id: int) -> bo
     return is_starred
 
 
-def update_progress_position(db: Session, user_id: int, bank_id: int, position: int):
-    bank = db.query(QuestionBank.id).filter(
-        QuestionBank.id == bank_id,
-        QuestionBank.status == BankStatus.ready,
-    ).first()
+def update_progress_position(
+    db: Session,
+    user: User,
+    bank_id: int,
+    position: int,
+    *,
+    reset: bool = False,
+):
+    query = db.query(QuestionBank.id).filter(QuestionBank.id == bank_id)
+    bank = apply_bank_access(query, user).first()
     if not bank:
         raise ValueError("题库不存在")
 
-    progress = _get_or_create_progress(db, user_id, bank_id)
-    progress.last_position = position
+    progress = _get_or_create_progress(db, user.id, bank_id)
+    progress.last_position = position if reset else max(progress.last_position or 0, position)
     db.commit()
 
 
@@ -420,12 +370,13 @@ def update_progress_position(db: Session, user_id: int, bank_id: int, position: 
 # ──────────────────────────────────────────
 
 def get_user_stats(db: Session, user_id: int) -> dict:
+    user = db.get(User, user_id)
     total_records = db.query(AnswerRecord).filter(AnswerRecord.user_id == user_id).count()
     correct_records = db.query(AnswerRecord).filter(
         AnswerRecord.user_id == user_id,
         AnswerRecord.is_correct == True,
     ).count()
-    wrong_count = len(get_current_wrong_question_ids(db, user_id))
+    wrong_ids = get_current_wrong_question_ids(db, user_id)
 
     banks_studied = db.query(UserProgress).filter(
         UserProgress.user_id == user_id,
@@ -433,28 +384,42 @@ def get_user_stats(db: Session, user_id: int) -> dict:
     ).count()
 
     # 今日作答
-    today_start = datetime.combine(datetime.utcnow().date(), datetime.min.time())
+    today_start, today_end = local_day_utc_bounds()
     today_answered = db.query(AnswerRecord).filter(
         AnswerRecord.user_id == user_id,
         AnswerRecord.answered_at >= today_start,
+        AnswerRecord.answered_at <= today_end,
     ).count()
 
-    # 收藏总数（合并所有题库）
-    starred_count = 0
+    # 错题和收藏只统计当前仍可访问的有效题目，避免已删除题库继续
+    # 出现在个人统计中，但在错题本列表里不可见。
+    starred_ids = set()
     all_progress = db.query(UserProgress).filter(UserProgress.user_id == user_id).all()
     for p in all_progress:
-        starred_count += len(p.starred_ids or [])
+        starred_ids.update(p.starred_ids or [])
+
+    def count_accessible(question_ids) -> int:
+        if not user or not question_ids:
+            return 0
+        query = db.query(sa_func.count(Question.id)).join(QuestionBank).filter(
+            Question.id.in_(question_ids),
+            Question.status == "active",
+        )
+        return int(apply_bank_access(query, user).scalar() or 0)
+
+    wrong_count = count_accessible(wrong_ids)
+    starred_count = count_accessible(starred_ids)
 
     accuracy = round(correct_records / total_records, 3) if total_records > 0 else 0.0
     answered_days = {
-        record.answered_at.date()
+        utc_timestamp_to_local_date(record.answered_at)
         for record in db.query(AnswerRecord.answered_at).filter(
             AnswerRecord.user_id == user_id,
             AnswerRecord.answered_at.isnot(None),
         ).all()
     }
     streak_days = 0
-    cursor = datetime.utcnow().date()
+    cursor = local_today()
     while cursor in answered_days:
         streak_days += 1
         cursor -= timedelta(days=1)
@@ -472,21 +437,18 @@ def get_user_stats(db: Session, user_id: int) -> dict:
     return result
 
 
-def recover_stale_tasks(db: Session, stale_minutes: int = 60) -> int:
-    """Mark interrupted background tasks as failed after a process restart."""
-    if stale_minutes <= 0:
-        raise ValueError("stale_minutes must be positive")
-
-    stale_before = datetime.utcnow() - timedelta(minutes=stale_minutes)
+def recover_interrupted_tasks(db: Session) -> int:
+    """Fail every in-process task that cannot survive an API process restart."""
     tasks = db.query(GenerateTask).filter(
         GenerateTask.status.in_([TaskStatus.pending, TaskStatus.running]),
-        sa_func.coalesce(GenerateTask.updated_at, GenerateTask.created_at) < stale_before,
     ).all()
     for task in tasks:
         task.status = TaskStatus.failed
-        task.message = "任务因服务重启或超时已终止"
-        task.error = f"stale task recovered after {stale_minutes} minutes"
+        task.message = "任务因服务重启已终止，请重新提交"
+        task.error = "generation interrupted by service restart"
         bank = db.query(QuestionBank).filter(QuestionBank.id == task.bank_id).first()
+        if bank and _status_is(bank.status, BankStatus.pending):
+            bank.status = BankStatus.deleted
         if bank and bank.source_type != "url" and bank.source_file and os.path.isfile(bank.source_file):
             try:
                 os.remove(bank.source_file)
@@ -495,8 +457,6 @@ def recover_stale_tasks(db: Session, stale_minutes: int = 60) -> int:
     if tasks:
         db.commit()
     return len(tasks)
-
-
 # ──────────────────────────────────────────
 #  异步出题任务
 # ──────────────────────────────────────────
@@ -578,6 +538,18 @@ def _update_generation_progress(
         task.progress = int(processed / total * 90) if total else 0
         task.message = message
         db.commit()
+    finally:
+        db.close()
+
+
+def _mark_generation_queued(db_factory, task_id: str, message: str) -> None:
+    """任务尚未取得并发额度时，先给前端一个可读的状态说明。"""
+    db: Session = db_factory()
+    try:
+        task = db.get(GenerateTask, task_id)
+        if task and _status_is(task.status, TaskStatus.pending):
+            task.message = message
+            db.commit()
     finally:
         db.close()
 
@@ -768,6 +740,13 @@ async def run_generate_task(
     """Run one bounded generation job without blocking the API event loop."""
     try:
         async with asyncio.timeout(settings.GENERATION_TIMEOUT_SECONDS):
+            if _generation_slots.locked():
+                await asyncio.to_thread(
+                    _mark_generation_queued,
+                    db_factory,
+                    task_id,
+                    "前面还有出题任务正在进行，排队等待中...",
+                )
             async with _generation_slots:
                 await _run_generation_pipeline(
                     task_id,

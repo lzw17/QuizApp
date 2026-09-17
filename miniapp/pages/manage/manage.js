@@ -16,7 +16,7 @@ Page({
 
   async _loadBanks() {
     try {
-      const list = await request({ url: '/api/banks/all?limit=100' });
+      const list = await this._loadAllPages('/api/banks/all', 200);
       this.setData({ banks: list });
     } catch {}
   },
@@ -25,7 +25,7 @@ Page({
     const id = e.currentTarget.dataset.id;
     this.setData({ editingBankId: id });
     try {
-      const list = await request({ url: `/api/admin/questions?bank_id=${id}&limit=100` });
+      const list = await this._loadAllPages(`/api/admin/questions?bank_id=${id}`, 200);
       this.setData({ editQuestions: list });
     } catch {}
   },
@@ -104,5 +104,16 @@ Page({
         }
       },
     });
+  },
+
+  async _loadAllPages(baseUrl, pageSize) {
+    const result = [];
+    for (let skip = 0; skip < 10000; skip += pageSize) {
+      const separator = baseUrl.includes('?') ? '&' : '?';
+      const page = await request({ url: `${baseUrl}${separator}skip=${skip}&limit=${pageSize}` });
+      result.push(...page);
+      if (page.length < pageSize) break;
+    }
+    return result;
   },
 });

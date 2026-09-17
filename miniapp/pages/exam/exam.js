@@ -1,5 +1,7 @@
 const { request, getUserId } = require('../../utils/request');
 const app = getApp();
+const AUTO_SUBMIT_MAX_ATTEMPTS = 3;
+const AUTO_SUBMIT_RETRY_DELAY_MS = 1500;
 
 Page({
   data: {
@@ -26,6 +28,11 @@ Page({
 
   _timer: null,
   _questions: [],
+  _deadlineMs: 0,
+  _autoSubmitTriggered: false,
+  _autoSubmitAttempts: 0,
+  _autoRetryTimer: null,
+  _pageVisible: false,
 
   onLoad(options) {
     this.setData({
@@ -33,6 +40,19 @@ Page({
       bankName: decodeURIComponent(options.bank_name || ''),
     });
     this._loadTags();
+  },
+
+  onShow() {
+    this._pageVisible = true;
+    if (this.data.phase === 'exam' && this._deadlineMs && !this.data.submitting) {
+      this._startTimer();
+    }
+  },
+
+  onHide() {
+    this._pageVisible = false;
+    this._clearTimer();
+    this._clearAutoRetry();
   },
 
   async _loadTags() {
@@ -52,13 +72,29 @@ Page({
   },
 
   onUnload() {
+    this._pageVisible = false;
     this._clearTimer();
+    this._clearAutoRetry();
     this._questions = [];
+    this._deadlineMs = 0;
   },
 
   // ─── 考前准备 ───
-  incCount() { if (this.data.examCount < 100) this.setData({ examCount: this.data.examCount + 5 }); },
-  decCount() { if (this.data.examCount > 5)  this.setData({ examCount: this.data.examCount - 5 }); },
+  _durationMinutes(count) {
+    return Math.ceil(Math.max(10 * 60, count * 90) / 60);
+  },
+
+  incCount() {
+    if (this.data.examCount >= 100) return;
+    const examCount = this.data.examCount + 5;
+    this.setData({ examCount, examMinutes: this._durationMinutes(examCount) });
+  },
+
+  decCount() {
+    if (this.data.examCount <= 5) return;
+    const examCount = this.data.examCount - 5;
+    this.setData({ examCount, examMinutes: this._durationMinutes(examCount) });
+  },
 
   async startExam() {
     wx.showLoading({ title: '出题中...' });
@@ -75,8 +111,14 @@ Page({
       });
       const list = exam.questions || [];
       if (!list.length) throw new Error('题库暂无可用题目');
-      const minutes = Math.max(10, Math.ceil(list.length * 1.5));
+      const durationSeconds = Number(exam.duration_seconds)
+        || Math.max(10 * 60, list.length * 90);
+      const minutes = Math.ceil(durationSeconds / 60);
       this._questions = list;
+      this._deadlineMs = Date.now() + durationSeconds * 1000;
+      this._autoSubmitTriggered = false;
+      this._autoSubmitAttempts = 0;
+      this._clearAutoRetry();
       this.setData({
         questionIndexes: list.map((_, index) => index),
         questionCount: list.length,
@@ -85,7 +127,7 @@ Page({
         currentIndex: 0,
         currentQ: list[0] || null,
         phase: 'exam',
-        timeLeft: minutes * 60,
+        timeLeft: durationSeconds,
         examMinutes: minutes,
         answeredCount: 0,
       });
@@ -98,22 +140,44 @@ Page({
 
   _startTimer() {
     this._clearTimer();
+    if (!this._syncTimer()) return;
     this._timer = setInterval(() => {
-      const left = this.data.timeLeft - 1;
-      if (left <= 0) {
-        this._clearTimer();
-        this.setData({ timeLeft: 0 });
-        wx.showModal({ title: '时间到！', content: '考试时间已结束，自动交卷', showCancel: false,
-          success: () => this._doSubmit(),
-        });
-      } else {
-        this.setData({ timeLeft: left });
-      }
+      this._syncTimer();
     }, 1000);
+  },
+
+  _syncTimer() {
+    if (!this._deadlineMs || this.data.phase !== 'exam') return false;
+    const left = Math.max(0, Math.ceil((this._deadlineMs - Date.now()) / 1000));
+    if (left !== this.data.timeLeft) this.setData({ timeLeft: left });
+    if (left <= 0) {
+      this._clearTimer();
+      this._handleTimeExpired();
+      return false;
+    }
+    return true;
+  },
+
+  _handleTimeExpired() {
+    if (this._autoSubmitTriggered || this.data.submitting) return;
+    if (this._autoSubmitAttempts >= AUTO_SUBMIT_MAX_ATTEMPTS) return;
+    this._autoSubmitAttempts += 1;
+    this._autoSubmitTriggered = true;
+    if (this._autoSubmitAttempts === 1) {
+      wx.showToast({ title: '考试时间已结束，正在自动交卷', icon: 'none' });
+    }
+    this._doSubmit({ automatic: true });
   },
 
   _clearTimer() {
     if (this._timer) { clearInterval(this._timer); this._timer = null; }
+  },
+
+  _clearAutoRetry() {
+    if (this._autoRetryTimer) {
+      clearTimeout(this._autoRetryTimer);
+      this._autoRetryTimer = null;
+    }
   },
 
   // ─── 答题 ───
@@ -168,15 +232,18 @@ Page({
     });
   },
 
-  async _doSubmit() {
+  async _doSubmit(options = {}) {
     if (this.data.submitting || !this.data.sessionId) return;
+    const automatic = options.automatic === true;
     this._clearTimer();
+    this._clearAutoRetry();
     this.setData({ submitting: true });
     wx.showLoading({ title: '评分中...' });
+    let shouldResumeTimer = false;
     try {
       const uid = await getUserId();
       if (!uid) {
-        if (this.data.phase === 'exam' && this.data.timeLeft > 0) this._startTimer();
+        shouldResumeTimer = true;
         wx.showToast({ title: '登录失败，请重试', icon: 'none' });
         return;
       }
@@ -188,6 +255,7 @@ Page({
       const result = await request({
         url: '/api/exam/submit',
         method: 'POST',
+        silent: true,
         data: {
           session_id: this.data.sessionId,
           bank_id: this.data.bankId,
@@ -202,13 +270,32 @@ Page({
         url: `/pages/result/result?result_key=${encodeURIComponent(resultKey)}&bank_id=${this.data.bankId}&bank_name=${encodeURIComponent(this.data.bankName)}`,
       });
     } catch {
-      if (this.data.phase === 'exam' && this.data.timeLeft > 0) {
-        this._startTimer();
+      shouldResumeTimer = true;
+      if (!automatic || this._autoSubmitAttempts >= AUTO_SUBMIT_MAX_ATTEMPTS) {
+        wx.showToast({
+          title: automatic ? '自动交卷失败，请点击交卷重试' : '提交失败，请重试',
+          icon: 'none',
+        });
       }
-      wx.showToast({ title: '提交失败，请重试', icon: 'none' });
     } finally {
       this.setData({ submitting: false });
       wx.hideLoading();
+      if (shouldResumeTimer && this.data.phase === 'exam') {
+        if (this._deadlineMs <= Date.now()) {
+          this._autoSubmitTriggered = false;
+          if (
+            this._pageVisible
+            && this._autoSubmitAttempts < AUTO_SUBMIT_MAX_ATTEMPTS
+          ) {
+            this._autoRetryTimer = setTimeout(() => {
+              this._autoRetryTimer = null;
+              this._handleTimeExpired();
+            }, AUTO_SUBMIT_RETRY_DELAY_MS);
+          }
+        } else {
+          this._startTimer();
+        }
+      }
     }
   },
 

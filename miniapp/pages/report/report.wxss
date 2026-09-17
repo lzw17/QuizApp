@@ -1,4 +1,5 @@
 .container { min-height: 100vh; padding: 24rpx 24rpx 60rpx; box-sizing: border-box; }
+.report-aigc { margin-bottom: 16rpx; }
 .summary { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20rpx; border-radius: 20rpx; }
 .summary-title { font-size: 34rpx; font-weight: 700; color: #222; }
 .summary-sub { font-size: 24rpx; color: #999; margin-top: 10rpx; }

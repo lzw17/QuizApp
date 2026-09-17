@@ -49,31 +49,50 @@
 ```ini
 APP_ENV=production
 DEBUG=false
+APP_TIMEZONE=Asia/Shanghai
 WX_MOCK_LOGIN=false
-WX_APPID=你的小程序AppID
+WX_APPID=wxaec3bef13eea7842
 WX_SECRET=你的AppSecret
 SECRET_KEY=（至少32位随机串，本地 openssl rand -hex 32 生成）
-DEEPSEEK_API_KEY=你的Key
+LLM_API_KEY=重新生成的DeepSeek模型Key
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-chat
+LLM_TIMEOUT_SECONDS=60
+LLM_MAX_RETRIES=2
+LLM_MAX_TOKENS=4096
 DATABASE_URL=mysql+pymysql://quizapp:数据库密码@127.0.0.1:3306/quizapp?charset=utf8mb4
 PUBLIC_BASE_URL=https://api.quizapp.chat
 ALLOWED_ORIGINS=https://servicewechat.com
 UPLOAD_DIR=/www/wwwroot/quizapp/uploads
 MAX_ACTIVE_GENERATION_TASKS=2
 MAX_CONCURRENT_GENERATION_TASKS=1
-GENERATION_TIMEOUT_SECONDS=900
+MAX_DAILY_GENERATION_TASKS=10
+MIN_GENERATION_INTERVAL_SECONDS=30
+GENERATION_TIMEOUT_SECONDS=1800
+# 文本分块：块过小会让 LLM 调用次数成倍增加，出题极慢（默认 1500 字/块）
+GENERATION_CHUNK_SIZE=1500
+GENERATION_CHUNK_OVERLAP=150
+GENERATION_CHUNK_CONCURRENCY=3
+MAX_DOCX_ENTRIES=2000
+MAX_DOCX_TOTAL_UNCOMPRESSED_MB=100
+MAX_DOCX_SINGLE_ENTRY_MB=20
+MAX_DOCX_COMPRESSION_RATIO=200
+MAX_PDF_PAGES=300
+MAX_EXTRACTED_TEXT_CHARS=1000000
 ```
 
 ⚠️ 注意：`validate_runtime_security()` 会校验这些字段，任何一项不合格服务会拒绝启动——这是故意的，照报错改即可。
 数据库密码如果包含 `@`、`:`、`/`、`#` 等 URL 特殊字符，必须先进行百分号编码再写入 `DATABASE_URL`。
+本部署步骤默认使用与小程序隐私声明一致的 DeepSeek。切换到 WienerAI 或其他兼容模型前，必须先确认服务商运营主体，更新小程序隐私页和微信后台《用户隐私保护指引》，再按 [`custom-llm.md`](custom-llm.md) 修改配置。模型地址必须填 API 根地址，不要填完整的 `/chat/completions`；生产环境只接受 HTTPS。
 
 ## 第 6 步：Python 项目管理器启动后端
 
 1. Python 项目管理器 → 添加项目：
    - 项目路径：`/www/wwwroot/quizapp/backend`
    - Python 版本：3.11（没有就先在管理器里装）
-   - 启动方式：**命令行启动**，命令：
+   - 启动方式：**命令行启动**，命令（Python 可执行文件由宝塔所选环境提供）：
      ```
-     /www/wwwroot/quizapp/backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
+     uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
      ```
    - 端口 `8000`
 2. 先在管理器里为本项目创建虚拟环境并安装精简生产依赖：`pip install -r requirements-prod.txt -i https://pypi.tuna.tsinghua.edu.cn/simple`
@@ -88,7 +107,9 @@ GENERATION_TIMEOUT_SECONDS=900
 1. 宝塔 → 网站 → 添加站点：域名 `api.quizapp.chat`，纯静态，不建数据库
 2. **SSL**：站点设置 → SSL → Let's Encrypt → 勾选域名 → 申请（免费，自动续期）；申请成功后开启"强制 HTTPS"
 3. **反向代理**：站点设置 → 反向代理 → 添加：目标 URL `http://127.0.0.1:8000`，发送域名 `$host`
-4. **改代理配置（关键）**：站点设置 → 配置文件，在 `server` 块中确认/加入：
+4. **先安装限流共享区（关键）**：将 [`docs/nginx/baota-http-rate-limit.conf`](nginx/baota-http-rate-limit.conf) 保存为 `/www/server/nginx/conf/quizapp-rate-limit.conf`，并在 `/www/server/nginx/conf/nginx.conf` 的 `http { ... }` 内加入 `include /www/server/nginx/conf/quizapp-rate-limit.conf;`。`limit_req_zone` 不能放进站点 `server` 块。
+
+5. **改代理配置（关键）**：完整的宝塔直部署配置以 [`docs/nginx/baota-quizapp-backend.conf`](nginx/baota-quizapp-backend.conf) 为准，对应服务器文件为 `/www/server/panel/vhost/nginx/python_quizapp-backend.conf`。该配置使用 `127.0.0.1:8000`，不要使用 Docker 配置中的 `backend:8000`。在 `server` 块中至少确认/加入：
 
 ```nginx
     # 上传 50MB 文档，留余量
@@ -109,26 +130,51 @@ GENERATION_TIMEOUT_SECONDS=900
     location / {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
+        proxy_set_header Connection "";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
     }
 ```
 
-5. 验证：浏览器打开 `https://api.quizapp.chat/health`，确认返回正常 JSON；随后再进行小程序体验版验证
+   普通 API 不使用 WebSocket，必须删除宝塔自动生成的 `proxy_set_header Upgrade $http_upgrade;` 和 `proxy_set_header Connection "upgrade";`，消除无效的连接升级并降低连接复用异常风险。
+
+6. 修改前先备份现有配置：
+   ```bash
+   sudo cp /www/server/panel/vhost/nginx/python_quizapp-backend.conf /www/server/panel/vhost/nginx/python_quizapp-backend.conf.bak
+   ```
+   然后在宝塔“配置文件”中按模板修改并保存，最后验证并重载：
+   ```bash
+   sudo /www/server/nginx/sbin/nginx -t
+   sudo /www/server/nginx/sbin/nginx -s reload
+   curl -i https://api.quizapp.chat/health
+   ```
+   `nginx -t` 失败时不要重载，先用 `.bak` 文件恢复。`/health` 必须返回 HTTP 200 和正常 JSON；随后再进行小程序体验版验证。
+
+7. 宝塔“网站监控报表”会给站点注入 `site_total.conf`。当前版本若反复重写全局日志格式并每 5 分钟 reload Nginx，会造成真机请求偶发断开。该功能不是本项目必需能力，应在宝塔中关闭；关闭后确认：
+   ```bash
+   systemctl is-active site_total
+   test -f /www/server/site_total/stop_always.txt
+   ls /www/server/panel/vhost/nginx/extension/quizapp-backend/
+   ```
+   预期服务为 `inactive`、停止标记存在，且扩展目录内没有 `site_total.conf`。不要用计划任务反复删除文件；应通过宝塔开关关闭，必要时先备份再处理残留扩展配置。
 
 ## 第 8 步：备案通过后完成小程序后台配置
 
 1. mp.weixin.qq.com → 开发管理 → 开发设置 → 服务器域名：
    - request 合法域名 + uploadFile 合法域名都填 `https://api.quizapp.chat`（**每月限改 5 次**）
 2. 微信客户端真机体验版测试全流程：登录 → 上传出题 → 刷题 → 错题本
-3. 提审前确认：AIGC“AI 生成”标识已加；《用户隐私保护指引》明确列出 DeepSeek、Jina Reader，以及启用时使用的 MinerU
+3. 提审前确认：AIGC“AI 生成”标识已加；《用户隐私保护指引》明确列出实际使用的 AI 服务商完整主体、Jina Reader，以及启用时使用的 MinerU
 
 ## 上线前后运维清单
 
 - [ ] 上线前配置数据库定时备份：宝塔 → 计划任务 → 添加“备份数据库 quizapp”，每天一次，保留 7 份，并执行一次恢复演练
 - [ ] 上线前运行 README 中的后端与小程序自动化测试，记录对应 Git 提交号
+- [ ] 生产虚拟环境执行 `python -m pip check`，结果必须为 `No broken requirements found`
+- [ ] `backend/.env` 权限为 `600`，且 `.env`、数据库、`uploads/` 均未进入 Git 或发布压缩包
 - [ ] 备案号挂在 privacy/关于页；30 日内做公安联网备案
 - [ ] 观察内存：生产环境保持 `MAX_CONCURRENT_GENERATION_TASKS=1`；若仍频繁使用 swap，再评估扩容或调整 MySQL
 

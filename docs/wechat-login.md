@@ -55,8 +55,17 @@
 - 在微信公众平台配置服务器 request 合法域名，必须使用已备案的 HTTPS 域名。
 - 后端 `.env` 配置与小程序一致的 `WX_APPID` 和 `WX_SECRET`；AppSecret 只能存放在服务端。
 - 生产环境设置 `APP_ENV=production`、`WX_MOCK_LOGIN=false`，并使用至少 32 位随机 `SECRET_KEY`。
-- 将 `miniapp/app.js` 的生产 `baseUrl` 改为实际 API 域名；开发版仍按开发者工具或局域网地址运行。
+- `miniapp/app.js` 的生产 `baseUrl` 使用实际 API 域名；仅开发者工具中的开发版连接本机，真机调试、体验版和正式版统一使用生产 HTTPS 域名。
 - `openid` 在不同小程序 AppID 下不同。如未来需要多个小程序或公众号合并账户，应持久化 `unionid` 并增加账号合并规则。
+
+## 真机请求没有 HTTP 状态码
+
+如果真机调试的 Network 面板只显示 `Provisional headers are shown`、传输量为 `0 B`，且没有 HTTP 状态码，说明请求尚未进入后端登录接口。按以下顺序排查：
+
+1. 微信公众平台的 **开发管理 → 开发设置 → 服务器域名** 中，确认 `request 合法域名` 和 `uploadFile 合法域名` 都包含 `https://api.quizapp.chat`。域名不要带路径、端口或末尾斜杠。
+2. 关闭开发者工具的“不校验合法域名”选项，清缓存并重新编译，确保真机测试与体验版、正式版使用相同校验规则。
+3. 用同一部手机的系统浏览器打开 `https://api.quizapp.chat/health`。无法打开时检查证书完整链、TLS 1.2/1.3、DNS 和安全组；能够打开时继续查看真机 Console 中 `[auth] request failed` 的 `errMsg` 与 `errno`。
+4. 点击登录的同时查看 Nginx 访问日志。没有 `POST /api/auth/login` 表示请求仍被微信客户端、DNS 或 TLS 层拦截；出现该请求后，再根据 HTTP 状态码排查生产服务器的 `WX_APPID`、`WX_SECRET` 和微信 `code2Session` 响应。
 
 ## 官方资料
 

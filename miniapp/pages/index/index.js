@@ -31,6 +31,7 @@ Page({
     }
     // 每次显示刷新（上传完成后返回）
     this._loadBanks(true);
+    this._loadCategories();
     this._loadStats();
     this._loadDailyQuestion();
   },
@@ -57,11 +58,8 @@ Page({
       const banks = await request({ url: `/api/banks?${query}` });
       if (requestId !== this._banksRequestId) return;
       const merged = reset ? banks : [...this.data.banks, ...banks];
-      // 收集分类
-      const catSet = new Set(merged.map(b => b.category).filter(Boolean));
       this.setData({
         banks: merged,
-        categories: [...catSet],
         page: reset ? 1 : this.data.page + 1,
         hasMore: banks.length === 20,
         loading: false,
@@ -69,6 +67,13 @@ Page({
     } catch {
       if (requestId === this._banksRequestId) this.setData({ loading: false });
     }
+  },
+
+  async _loadCategories() {
+    try {
+      const categories = await request({ url: '/api/banks/categories' });
+      this.setData({ categories });
+    } catch {}
   },
 
   async _loadStats() {
@@ -98,7 +103,8 @@ Page({
   async _loadDailyQuestion() {
     try {
       this.setData({ dailyLoading: true });
-      const daily = await request({ url: '/api/daily-question' });
+      // 无题库时后端返回 404（无数据 ≠ 错误），静默处理避免首页弹错误提示
+      const daily = await request({ url: '/api/daily-question', silent: true });
       this.setData({ dailyQuestion: daily, dailyLoading: false });
     } catch {
       this.setData({ dailyQuestion: null, dailyLoading: false });
@@ -129,8 +135,8 @@ Page({
         try {
           await request({ url: `/api/banks/${id}`, method: 'DELETE' });
           const banks = this.data.banks.filter(item => item.id !== id);
-          const categories = [...new Set(banks.map(item => item.category).filter(Boolean))];
-          this.setData({ banks, categories });
+          this.setData({ banks });
+          this._loadCategories();
           wx.showToast({ title: '题库已删除', icon: 'success' });
         } catch {
         } finally {

@@ -4,6 +4,7 @@ import tempfile
 import time
 import unittest
 import uuid
+import zipfile
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
@@ -22,19 +23,22 @@ os.environ.update(
 )
 
 from fastapi.testclient import TestClient
+from fastapi import HTTPException
 
-from backend.app.database import SessionLocal, engine
+from backend.app.database import SessionLocal, _engine_options, engine
 from backend.app.config import settings
 from backend.app.main import app
-from backend.app.models.question import GenerateTask, Question, QuestionBank
+from backend.app.models.question import ExamSubmission, GenerateTask, Question, QuestionBank
 from backend.app.models.user import AnswerRecord, User, UserProgress
 from backend.app.routers.auth import _get_wechat_session
+from backend.app.routers.upload import _build_bank_data, _ensure_generation_capacity
 from backend.app.schemas.question import QuestionCreate
 from backend.app.services.question_service import (
     get_user_stats,
-    recover_stale_tasks,
+    recover_interrupted_tasks,
     run_generate_task,
 )
+from backend.app.services.doc_parser import _limit_extracted_text, validate_document_file
 
 
 class AuthFlowTest(unittest.TestCase):
@@ -54,6 +58,12 @@ class AuthFlowTest(unittest.TestCase):
         response = self.client.post("/api/auth/login", json={"code": "test-code"})
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
+
+    def test_mysql_engine_checks_and_recycles_pooled_connections(self):
+        options = _engine_options("mysql+pymysql://user:password@db/quizapp")
+        self.assertTrue(options["pool_pre_ping"])
+        self.assertEqual(options["pool_recycle"], 1800)
+        self.assertNotIn("pool_pre_ping", _engine_options("sqlite:///quiz.db"))
 
     def create_bank(self, created_by="mock_auth-test-user"):
         db = SessionLocal()
@@ -166,29 +176,12 @@ class AuthFlowTest(unittest.TestCase):
             db.close()
 
     def test_admin_can_delete_another_users_bank(self):
-        session = self.login()
-        headers = {"Authorization": f"Bearer {session['access_token']}"}
-        bank_id, _ = self.create_bank(created_by="another-user")
-
-        db = SessionLocal()
-        try:
-            user = db.get(User, session["user"]["id"])
-            user.is_admin = True
-            db.commit()
-        finally:
-            db.close()
-
-        try:
+        with patch("backend.app.auth.settings.ADMIN_OPENIDS", "mock_auth-test-user"):
+            session = self.login()
+            headers = {"Authorization": f"Bearer {session['access_token']}"}
+            bank_id, _ = self.create_bank(created_by="another-user")
             response = self.client.delete(f"/api/banks/{bank_id}", headers=headers)
             self.assertEqual(response.status_code, 200, response.text)
-        finally:
-            db = SessionLocal()
-            try:
-                user = db.get(User, session["user"]["id"])
-                user.is_admin = False
-                db.commit()
-            finally:
-                db.close()
 
     def test_login_and_restore_session(self):
         session = self.login()
@@ -490,6 +483,7 @@ class AuthFlowTest(unittest.TestCase):
             },
         )
         self.assertEqual(submitted.status_code, 200, submitted.text)
+        first_result = submitted.json()
         again = self.client.post(
             "/api/exam/submit",
             headers=headers,
@@ -499,7 +493,23 @@ class AuthFlowTest(unittest.TestCase):
                 "answers": [{"question_id": question_id, "user_answer": "A"}],
             },
         )
-        self.assertEqual(again.status_code, 409, again.text)
+        self.assertEqual(again.status_code, 200, again.text)
+        self.assertEqual(again.json(), first_result)
+        db = SessionLocal()
+        try:
+            self.assertEqual(
+                db.query(AnswerRecord).filter(
+                    AnswerRecord.user_id == session["user"]["id"],
+                    AnswerRecord.bank_id == bank_id,
+                    AnswerRecord.mode == "exam",
+                ).count(),
+                1,
+            )
+            persisted = db.get(ExamSubmission, payload["session_id"])
+            self.assertIsNotNone(persisted)
+            self.assertEqual(persisted.result, first_result)
+        finally:
+            db.close()
 
     def test_exam_accepts_unanswered_questions_as_wrong(self):
         session = self.login()
@@ -513,6 +523,7 @@ class AuthFlowTest(unittest.TestCase):
         )
         self.assertEqual(started.status_code, 200, started.text)
         payload = started.json()
+        self.assertGreaterEqual(payload["duration_seconds"], 600)
         submitted = self.client.post(
             "/api/exam/submit",
             headers=headers,
@@ -594,18 +605,169 @@ class AuthFlowTest(unittest.TestCase):
             self.assertEqual(user.nickname, "")
             self.assertEqual(db.query(AnswerRecord).filter(AnswerRecord.user_id == user.id).count(), 0)
             self.assertEqual(db.query(UserProgress).filter(UserProgress.user_id == user.id).count(), 0)
-            self.assertEqual(db.get(QuestionBank, bank_id).status, "deleted")
-            self.assertEqual(db.get(Question, question_id).status, "deleted")
+            deleted_bank = db.get(QuestionBank, bank_id)
+            self.assertEqual(deleted_bank.status, "deleted")
+            self.assertEqual(deleted_bank.name, "已删除题库")
+            self.assertEqual(deleted_bank.description, "")
+            self.assertEqual(deleted_bank.category, "")
+            self.assertEqual(deleted_bank.source_file, "")
+            self.assertEqual(deleted_bank.source_type, "")
+            self.assertEqual(deleted_bank.total_count, 0)
+            deleted_question = db.get(Question, question_id)
+            self.assertEqual(deleted_question.status, "deleted")
+            self.assertEqual(deleted_question.content, "")
+            self.assertEqual(deleted_question.options, [])
+            self.assertEqual(deleted_question.answer, "")
+            self.assertEqual(deleted_question.explanation, "")
+            self.assertEqual(deleted_question.tags, [])
         finally:
             db.close()
 
     def test_admin_configuration_can_be_revoked(self):
         session = self.login()
         headers = {"Authorization": f"Bearer {session['access_token']}"}
-        with patch("backend.app.routers.auth.settings.ADMIN_OPENIDS", "mock_auth-test-user"):
+        with patch("backend.app.auth.settings.ADMIN_OPENIDS", "mock_auth-test-user"):
             self.assertTrue(self.client.get("/api/auth/me", headers=headers).json()["is_admin"])
-        with patch("backend.app.routers.auth.settings.ADMIN_OPENIDS", ""):
+            self.assertEqual(self.client.get("/api/banks/all", headers=headers).status_code, 200)
+        with patch("backend.app.auth.settings.ADMIN_OPENIDS", ""):
             self.assertFalse(self.client.get("/api/auth/me", headers=headers).json()["is_admin"])
+            self.assertEqual(self.client.get("/api/banks/all", headers=headers).status_code, 403)
+
+    def test_ready_banks_are_private_to_owner_but_visible_to_admin(self):
+        owner = self.login()
+        owner_headers = {"Authorization": f"Bearer {owner['access_token']}"}
+        bank_id, question_id = self.create_bank()
+        db = SessionLocal()
+        try:
+            db.get(QuestionBank, bank_id).category = f"private-{uuid.uuid4().hex}"
+            private_category = db.get(QuestionBank, bank_id).category
+            db.commit()
+        finally:
+            db.close()
+
+        with patch("backend.app.routers.auth.settings.WX_MOCK_OPENID", "other-user"):
+            other = self.login()
+        other_headers = {"Authorization": f"Bearer {other['access_token']}"}
+
+        listed = self.client.get("/api/banks?limit=100", headers=other_headers)
+        self.assertNotIn(bank_id, {item["id"] for item in listed.json()})
+        categories = self.client.get("/api/banks/categories", headers=other_headers)
+        self.assertNotIn(private_category, categories.json())
+        self.assertEqual(self.client.get(f"/api/banks/{bank_id}", headers=other_headers).status_code, 404)
+        self.assertEqual(self.client.get(f"/api/questions?bank_id={bank_id}", headers=other_headers).status_code, 404)
+        self.assertEqual(self.client.get(f"/api/questions/{question_id}", headers=other_headers).status_code, 404)
+        self.assertEqual(
+            self.client.post(
+                "/api/exam/start",
+                headers=other_headers,
+                json={"bank_id": bank_id, "question_count": 1},
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.post(
+                "/api/answer",
+                headers=other_headers,
+                json={"bank_id": bank_id, "question_id": question_id, "user_answer": "A"},
+            ).status_code,
+            400,
+        )
+
+        with patch("backend.app.auth.settings.ADMIN_OPENIDS", "mock_other-user"):
+            self.assertEqual(self.client.get(f"/api/banks/{bank_id}", headers=other_headers).status_code, 200)
+
+        self.assertEqual(self.client.delete(f"/api/banks/{bank_id}", headers=owner_headers).status_code, 200)
+
+    def test_document_structure_limits_reject_archive_bombs_and_long_pdfs(self):
+        docx_path = os.path.join(tempfile.gettempdir(), f"bomb-{uuid.uuid4().hex}.docx")
+        pdf_path = os.path.join(tempfile.gettempdir(), f"pages-{uuid.uuid4().hex}.pdf")
+        self.addCleanup(lambda: os.path.exists(docx_path) and os.remove(docx_path))
+        self.addCleanup(lambda: os.path.exists(pdf_path) and os.remove(pdf_path))
+
+        with zipfile.ZipFile(docx_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("[Content_Types].xml", "<Types/>")
+            archive.writestr("word/document.xml", "A" * (2 * 1024 * 1024))
+        with self.assertRaisesRegex(ValueError, "压缩比异常"):
+            validate_document_file(docx_path, "word")
+
+        from pypdf import PdfWriter
+        writer = PdfWriter()
+        writer.add_blank_page(width=100, height=100)
+        writer.add_blank_page(width=100, height=100)
+        with open(pdf_path, "wb") as target:
+            writer.write(target)
+        with patch("backend.app.services.doc_parser.settings.MAX_PDF_PAGES", 1):
+            with self.assertRaisesRegex(ValueError, "页数不能超过"):
+                validate_document_file(pdf_path, "pdf")
+
+    def test_upload_metadata_and_extracted_text_limits(self):
+        bank_data = _build_bank_data("   ", "fallback name", " description ", " category ")
+        self.assertEqual(bank_data.name, "fallback name")
+        self.assertEqual(bank_data.description, "description")
+        self.assertEqual(bank_data.category, "category")
+
+        with self.assertRaises(HTTPException) as metadata_error:
+            _build_bank_data("x" * 201, "fallback", "", "")
+        self.assertEqual(metadata_error.exception.status_code, 400)
+
+        with patch("backend.app.services.doc_parser.settings.MAX_EXTRACTED_TEXT_CHARS", 10):
+            self.assertEqual(_limit_extracted_text("1234567890"), "1234567890")
+            with self.assertRaisesRegex(ValueError, "文本超过处理上限"):
+                _limit_extracted_text("12345678901")
+
+    def test_progress_cannot_move_backwards_without_explicit_reset(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        bank_id, _ = self.create_bank()
+        for position in (10, 3):
+            response = self.client.post(
+                "/api/progress",
+                headers=headers,
+                json={"bank_id": bank_id, "position": position},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+        progress = self.client.get(f"/api/progress/{bank_id}", headers=headers)
+        self.assertEqual(progress.json()["last_position"], 10)
+
+        reset = self.client.post(
+            "/api/progress",
+            headers=headers,
+            json={"bank_id": bank_id, "position": 0, "reset": True},
+        )
+        self.assertEqual(reset.status_code, 200, reset.text)
+        progress = self.client.get(f"/api/progress/{bank_id}", headers=headers)
+        self.assertEqual(progress.json()["last_position"], 0)
+        self.client.delete(f"/api/banks/{bank_id}", headers=headers)
+
+    def test_profile_cannot_claim_another_server_avatar(self):
+        session = self.login()
+        response = self.client.put(
+            "/api/auth/profile",
+            headers={"Authorization": f"Bearer {session['access_token']}"},
+            json={
+                "nickname": "测试用户",
+                "avatar": f"/uploads/avatars/{uuid.uuid4().hex}.png",
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.text)
+
+    def test_restart_recovery_fails_recent_tasks_and_hides_pending_bank(self):
+        db = SessionLocal()
+        try:
+            bank = QuestionBank(name="interrupted", status="pending", created_by="owner")
+            db.add(bank)
+            db.flush()
+            task = GenerateTask(id=uuid.uuid4().hex, bank_id=bank.id, status="pending")
+            db.add(task)
+            db.commit()
+            task_id = task.id
+            bank_id = bank.id
+            recovered = recover_interrupted_tasks(db)
+            self.assertGreaterEqual(recovered, 1)
+            self.assertEqual(db.get(GenerateTask, task_id).status, "failed")
+            self.assertEqual(db.get(QuestionBank, bank_id).status, "deleted")
+        finally:
+            db.close()
 
     def test_pending_bank_is_hidden_from_regular_users(self):
         session = self.login()
@@ -712,6 +874,101 @@ class AuthFlowTest(unittest.TestCase):
             0,
         )
 
+    def test_wrong_question_cursor_does_not_skip_after_resolution(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        bank_id, first_id = self.create_bank()
+        db = SessionLocal()
+        try:
+            first = db.get(Question, first_id)
+            first.options = [
+                {"key": "A", "text": "correct"},
+                {"key": "B", "text": "wrong"},
+            ]
+            for index in range(2):
+                db.add(Question(
+                    bank_id=bank_id,
+                    type="single",
+                    content=f"cursor question {index}",
+                    options=[
+                        {"key": "A", "text": "correct"},
+                        {"key": "B", "text": "wrong"},
+                    ],
+                    answer="A",
+                    order_index=index + 2,
+                ))
+            db.commit()
+            question_ids = [
+                question_id for (question_id,) in db.query(Question.id).filter(
+                    Question.bank_id == bank_id,
+                ).order_by(Question.id).all()
+            ]
+        finally:
+            db.close()
+
+        for question_id in question_ids:
+            response = self.client.post(
+                "/api/answer",
+                headers=headers,
+                json={"bank_id": bank_id, "question_id": question_id, "user_answer": "B"},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+
+        first_page = self.client.get(
+            f"/api/questions?bank_id={bank_id}&mode=wrong&limit=1",
+            headers=headers,
+        )
+        self.assertEqual(first_page.status_code, 200, first_page.text)
+        cursor_id = first_page.json()[0]["id"]
+        self.assertEqual(cursor_id, question_ids[0])
+
+        resolved = self.client.post(
+            "/api/answer",
+            headers=headers,
+            json={"bank_id": bank_id, "question_id": cursor_id, "user_answer": "A"},
+        )
+        self.assertEqual(resolved.status_code, 200, resolved.text)
+
+        next_page = self.client.get(
+            f"/api/questions?bank_id={bank_id}&mode=wrong&after_id={cursor_id}&limit=1",
+            headers=headers,
+        )
+        self.assertEqual(next_page.status_code, 200, next_page.text)
+        self.assertEqual([item["id"] for item in next_page.json()], [question_ids[1]])
+
+    def test_deleted_bank_is_excluded_from_current_review_stats(self):
+        session = self.login()
+        headers = {"Authorization": f"Bearer {session['access_token']}"}
+        bank_id, question_id = self.create_bank()
+        db = SessionLocal()
+        try:
+            question = db.get(Question, question_id)
+            question.options = [
+                {"key": "A", "text": "correct"},
+                {"key": "B", "text": "wrong"},
+            ]
+            db.commit()
+        finally:
+            db.close()
+
+        self.assertEqual(self.client.post(
+            "/api/answer",
+            headers=headers,
+            json={"bank_id": bank_id, "question_id": question_id, "user_answer": "B"},
+        ).status_code, 200)
+        self.assertEqual(self.client.post(
+            "/api/star",
+            headers=headers,
+            json={"bank_id": bank_id, "question_id": question_id},
+        ).status_code, 200)
+        before = self.client.get("/api/stats", headers=headers).json()
+
+        deleted = self.client.delete(f"/api/banks/{bank_id}", headers=headers)
+        self.assertEqual(deleted.status_code, 200, deleted.text)
+        after = self.client.get("/api/stats", headers=headers).json()
+        self.assertEqual(after["wrong_count"], before["wrong_count"] - 1)
+        self.assertEqual(after["starred_count"], before["starred_count"] - 1)
+
     def test_cross_bank_wrong_and_review_queries_include_every_bank(self):
         session = self.login()
         headers = {"Authorization": f"Bearer {session['access_token']}"}
@@ -762,6 +1019,19 @@ class AuthFlowTest(unittest.TestCase):
         review_by_id = {item["id"]: item for item in review.json()}
         for _, question_id in pairs:
             self.assertEqual(review_by_id[question_id]["answer"], "A")
+        first_review_page = self.client.get(
+            "/api/review-questions?source=wrong&skip=0&limit=1",
+            headers=headers,
+        )
+        second_review_page = self.client.get(
+            "/api/review-questions?source=wrong&skip=1&limit=1",
+            headers=headers,
+        )
+        self.assertEqual(first_review_page.status_code, 200, first_review_page.text)
+        self.assertEqual(second_review_page.status_code, 200, second_review_page.text)
+        self.assertEqual(len(first_review_page.json()), 1)
+        self.assertEqual(len(second_review_page.json()), 1)
+        self.assertNotEqual(first_review_page.json()[0]["id"], second_review_page.json()[0]["id"])
 
         for bank_id, question_id in pairs:
             starred = self.client.post(
@@ -790,6 +1060,26 @@ class AuthFlowTest(unittest.TestCase):
         starred_review_by_id = {item["id"]: item for item in starred_review.json()}
         for _, question_id in pairs:
             self.assertEqual(starred_review_by_id[question_id]["answer"], "A")
+
+        ordered_pairs = sorted(pairs, key=lambda pair: pair[1])
+        cursor_bank_id, cursor_question_id = ordered_pairs[0]
+        _, remaining_question_id = ordered_pairs[1]
+        unstarred = self.client.post(
+            "/api/star",
+            headers=headers,
+            json={"bank_id": cursor_bank_id, "question_id": cursor_question_id},
+        )
+        self.assertEqual(unstarred.status_code, 200, unstarred.text)
+        self.assertFalse(unstarred.json()["is_starred"])
+        cursor_page = self.client.get(
+            f"/api/review-questions?source=starred&after_id={cursor_question_id}&limit=1",
+            headers=headers,
+        )
+        self.assertEqual(cursor_page.status_code, 200, cursor_page.text)
+        self.assertEqual(
+            [item["id"] for item in cursor_page.json()],
+            [remaining_question_id],
+        )
 
         no_bank = self.client.get("/api/questions?mode=sequential", headers=headers)
         self.assertEqual(no_bank.status_code, 400, no_bank.text)
@@ -964,7 +1254,7 @@ class AuthFlowTest(unittest.TestCase):
             db.add(stale)
             db.commit()
             self.assertEqual(get_user_stats(db, user.id)["streak_days"], 2)
-            self.assertEqual(recover_stale_tasks(db, 60), 1)
+            self.assertEqual(recover_interrupted_tasks(db), 1)
             db.refresh(stale)
             self.assertEqual(stale.status, "failed")
         finally:
@@ -1025,6 +1315,46 @@ class AuthFlowTest(unittest.TestCase):
             self.assertEqual(task.status, "failed")
             self.assertEqual(task.error, "生成失败，请更换资料或稍后重试")
             self.assertEqual(bank.status, "deleted")
+        finally:
+            db.close()
+
+    def test_generation_frequency_and_daily_limits_are_persistent(self):
+        db = SessionLocal()
+        try:
+            user = User(openid=f"quota-{uuid.uuid4().hex}")
+            db.add(user)
+            db.flush()
+            for index in range(2):
+                bank = QuestionBank(
+                    name=f"quota-{index}",
+                    status="deleted",
+                    created_by=user.openid,
+                )
+                db.add(bank)
+                db.flush()
+                db.add(GenerateTask(
+                    id=uuid.uuid4().hex,
+                    bank_id=bank.id,
+                    status="done",
+                    created_at=datetime.utcnow(),
+                ))
+            db.commit()
+
+            with (
+                patch("backend.app.routers.upload.settings.MAX_DAILY_GENERATION_TASKS", 2),
+                patch("backend.app.routers.upload.settings.MIN_GENERATION_INTERVAL_SECONDS", 0),
+                self.assertRaises(HTTPException) as daily_error,
+            ):
+                _ensure_generation_capacity(db, user)
+            self.assertEqual(daily_error.exception.status_code, 429)
+
+            with (
+                patch("backend.app.routers.upload.settings.MAX_DAILY_GENERATION_TASKS", 100),
+                patch("backend.app.routers.upload.settings.MIN_GENERATION_INTERVAL_SECONDS", 60),
+                self.assertRaises(HTTPException) as frequency_error,
+            ):
+                _ensure_generation_capacity(db, user)
+            self.assertEqual(frequency_error.exception.status_code, 429)
         finally:
             db.close()
 

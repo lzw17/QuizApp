@@ -38,6 +38,7 @@ Page({
 
   _startTime: 0,
   _randomSeed: null,
+  _reviewCursorId: null,
 
   onLoad(options) {
     const { bank_id, mode, tag, skip, source, question_id } = options;
@@ -65,22 +66,41 @@ Page({
 
   async _loadQuestions(skip = 0, append = false) {
     if (append && this.data.loadingMore) return;
+    const isMutableReview = this.data.mode === 'wrong'
+      || this.data.mode === 'starred'
+      || this.data.mode === 'memorize';
+    if (isMutableReview && !append) this._reviewCursorId = null;
     this.setData(append ? { loadingMore: true } : { loading: true, startSkip: skip });
     try {
       if (this.data.mode === 'memorize') {
         const bankQuery = this.data.bankId ? `&bank_id=${this.data.bankId}` : '';
-        const list = await request({
-          url: `/api/review-questions?source=${this.data.source}${bankQuery}`,
-        });
+        const reviewMode = this.data.source === 'starred' ? 'starred' : 'wrong';
+        const pageSkip = append ? 0 : skip;
+        const cursorQuery = append && this._reviewCursorId !== null
+          ? `&after_id=${this._reviewCursorId}`
+          : '';
+        const [list, countInfo] = await Promise.all([
+          request({
+            url: `/api/review-questions?source=${reviewMode}${bankQuery}&skip=${pageSkip}&limit=100${cursorQuery}`,
+          }),
+          append
+            ? Promise.resolve({ total: this.data.total })
+            : request({
+              url: `/api/questions/count?mode=${reviewMode}${bankQuery}`,
+            }),
+        ]);
+        if (list.length) this._reviewCursorId = list[list.length - 1].id;
+        const questions = append ? this.data.questions.concat(list) : list;
+        const total = Number(countInfo.total || questions.length);
         this.setData({
-          questions: list,
-          total: list.length,
-          hasMore: false,
+          questions,
+          total,
+          hasMore: this.data.startSkip + questions.length < total && list.length > 0,
           loading: false,
           loadingMore: false,
-          done: list.length === 0,
+          done: questions.length === 0,
         });
-        if (list.length > 0) this._showQuestion(0);
+        if (!append && questions.length > 0) this._showQuestion(0);
         return;
       }
       if (this.data.mode === 'daily' && this.data.questionId) {
@@ -98,7 +118,11 @@ Page({
       }
       const mode = this.data.mode === 'tag' ? 'sequential' : this.data.mode;
       const bankQuery = this.data.bankId ? `bank_id=${this.data.bankId}&` : '';
-      let query = `${bankQuery}mode=${mode}&skip=${skip}&limit=100`;
+      const pageSkip = isMutableReview && append ? 0 : skip;
+      const cursorQuery = isMutableReview && append && this._reviewCursorId !== null
+        ? `&after_id=${this._reviewCursorId}`
+        : '';
+      let query = `${bankQuery}mode=${mode}&skip=${pageSkip}&limit=100${cursorQuery}`;
       let countQuery = `${bankQuery}mode=${mode}`;
       if (mode === 'random' && this._randomSeed !== null) {
         query += `&seed=${this._randomSeed}`;
@@ -119,12 +143,15 @@ Page({
         request({ url: `/api/questions?${query}` }),
         append ? Promise.resolve({ total: this.data.total }) : request({ url: `/api/questions/count?${countQuery}` }),
       ]);
+      if (isMutableReview && list.length) {
+        this._reviewCursorId = list[list.length - 1].id;
+      }
       const questions = append ? this.data.questions.concat(list) : list;
       const total = Number(countInfo.total || questions.length);
       this.setData({
         questions,
         total,
-        hasMore: questions.length < total && list.length > 0,
+        hasMore: this.data.startSkip + questions.length < total && list.length > 0,
         loading: false,
         loadingMore: false,
       });
@@ -143,8 +170,15 @@ Page({
     if (!uid) return;
     try {
       if (!this.data.bankId) {
-        const starred = await request({ url: '/api/starred-questions' });
-        const starredIds = starred.map(item => item.id);
+        const starredIds = [];
+        const pageSize = 100;
+        for (let skip = 0; ; skip += pageSize) {
+          const page = await request({
+            url: `/api/questions?mode=starred&skip=${skip}&limit=${pageSize}`,
+          });
+          starredIds.push(...page.map(item => item.id));
+          if (page.length < pageSize) break;
+        }
         this.setData({
           starredIds,
           isStarred: this.data.question ? starredIds.includes(this.data.question.id) : false,
@@ -184,7 +218,7 @@ Page({
       isCorrect: saved ? saved.isCorrect : false,
       correctRate: saved ? saved.correctRate : 0,
       isStarred,
-      isLast: index === this.data.questions.length - 1,
+      isLast: index === this.data.questions.length - 1 && !this.data.hasMore,
     });
     if (!saved || !saved.answered) {
       this._startTime = Date.now();
@@ -253,11 +287,14 @@ Page({
       });
       // 顺序模式保存进度
       if (this.data.mode === 'sequential') {
-        request({
-          url: '/api/progress',
-          method: 'POST',
-          data: { bank_id: questionBankId, position: this.data.startSkip + this.data.currentIndex + 1 },
-        }).catch(() => {});
+        try {
+          await request({
+            url: '/api/progress',
+            method: 'POST',
+            data: { bank_id: questionBankId, position: this.data.startSkip + this.data.currentIndex + 1 },
+            silent: true,
+          });
+        } catch {}
       }
     } catch {} finally {
       this.setData({ answerSubmitting: false });
@@ -269,7 +306,7 @@ Page({
     const next = this.data.currentIndex + 1;
     if (next >= this.data.questions.length) {
       if (this.data.hasMore) {
-        await this._loadQuestions(this.data.questions.length, true);
+        await this._loadQuestions(this.data.startSkip + this.data.questions.length, true);
         if (this.data.questions.length > next) this._showQuestion(next);
         else this.setData({ done: true });
       } else {
@@ -323,12 +360,23 @@ Page({
     return (this.data.correctAnswer || '').toUpperCase().includes(key) || false;
   },
 
-  restart() {
+  async restart() {
     if (this.data.mode === 'random') {
       this._randomSeed = Math.floor(Math.random() * 2147483647);
     }
-    this.setData({ done: false, sessionTotal: 0, sessionCorrect: 0, userAnswers: {}, correctAnswer: '', explanation: '' });
-    this._loadQuestions(0);
+    if (this.data.mode === 'sequential' && this.data.bankId) {
+      try {
+        await request({
+          url: '/api/progress',
+          method: 'POST',
+          data: { bank_id: this.data.bankId, position: 0, reset: true },
+        });
+      } catch {
+        return;
+      }
+    }
+    this.setData({ done: false, startSkip: 0, sessionTotal: 0, sessionCorrect: 0, userAnswers: {}, correctAnswer: '', explanation: '' });
+    await this._loadQuestions(0);
   },
 
   goBack() { wx.navigateBack(); },

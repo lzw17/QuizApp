@@ -44,3 +44,4 @@
 .q-tag { background: #F5F6FA; color: #888; font-size: 20rpx; padding: 4rpx 12rpx; border-radius: 10rpx; }
 
 .empty-state { padding: 120rpx 0; text-align: center; color: #CCC; font-size: 28rpx; }
+.loading-more { padding: 20rpx 0 32rpx; text-align: center; color: #999; font-size: 24rpx; }

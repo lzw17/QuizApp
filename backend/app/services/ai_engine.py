@@ -1,6 +1,6 @@
 """
 AI 出题引擎
-使用 DeepSeek + LangChain，双 Agent 并行生成直白题和逻辑题
+使用 OpenAI 兼容模型 + LangChain，双 Agent 并行生成直白题和逻辑题
 """
 import json
 import asyncio
@@ -17,18 +17,18 @@ from ..utils.dedup import deduplicate_questions
 logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────
-#  DeepSeek 客户端（兼容 OpenAI 格式）
+#  OpenAI 兼容模型客户端
 # ──────────────────────────────────────────
 
 def get_llm(temperature: float = 0.7) -> ChatOpenAI:
     return ChatOpenAI(
-        model=settings.DEEPSEEK_MODEL,
-        openai_api_key=settings.DEEPSEEK_API_KEY,
-        openai_api_base=settings.DEEPSEEK_BASE_URL,
+        model=settings.llm_model,
+        openai_api_key=settings.llm_api_key,
+        openai_api_base=settings.llm_base_url,
         temperature=temperature,
-        max_tokens=4096,
-        timeout=60.0,
-        max_retries=2,
+        max_tokens=settings.LLM_MAX_TOKENS,
+        timeout=settings.LLM_TIMEOUT_SECONDS,
+        max_retries=settings.LLM_MAX_RETRIES,
     )
 
 
@@ -111,12 +111,16 @@ def _parse_llm_output(raw: str) -> List[dict]:
     start = raw.find("[")
     end = raw.rfind("]")
     if start == -1 or end == -1:
-        logger.warning(f"LLM 输出中未找到 JSON 数组: {raw[:200]}")
+        logger.warning("LLM 输出中未找到 JSON 数组（响应长度=%s）", len(raw))
         return []
     try:
         return json.loads(raw[start:end + 1])
     except json.JSONDecodeError as e:
-        logger.warning(f"JSON 解析失败: {e}, 原始内容: {raw[start:start+300]}")
+        logger.warning(
+            "LLM JSON 解析失败（位置=%s，响应长度=%s）",
+            e.pos,
+            len(raw),
+        )
         return []
 
 
@@ -136,7 +140,10 @@ def _normalize_question(q: dict, bank_id: int, order_index: int) -> Optional[dic
             difficulty=q.get("difficulty", 3),
         )
     except (TypeError, ValueError) as exc:
-        logger.warning("Skipping invalid generated question: %s", exc)
+        logger.warning(
+            "Skipping invalid generated question (%s)",
+            type(exc).__name__,
+        )
         return None
 
     normalized = validated.model_dump(exclude={"bank_id"})
@@ -174,7 +181,7 @@ async def generate_from_chunk(
             return_exceptions=True,
         )
     except Exception as e:
-        logger.error(f"LLM 调用异常: {e}")
+        logger.error("LLM 调用异常（%s）", type(e).__name__)
         return []
 
     all_raw = []
@@ -202,36 +209,64 @@ async def generate_questions_from_chunks(
     max_questions: Optional[int] = None,
 ) -> List[dict]:
     """
-    对所有分块逐一出题，带进度回调
+    对所有分块出题，带进度回调
+
+    段落之间相互独立，全部串行会让文档稍大就超出任务超时，
+    因此这里用有限并发（GENERATION_CHUNK_CONCURRENCY）同时处理多个段落。
+    进度按「已完成段落数」上报，保证前端进度条单调递增。
     progress_callback(processed, total, generated_count, message)
     """
-    all_questions: List[dict] = []
     total = len(chunks)
+    if total == 0:
+        return []
 
-    for i, chunk in enumerate(chunks):
-        if max_questions is not None and len(all_questions) >= max_questions:
-            break
-        try:
-            questions = await generate_from_chunk(
-                chunk=chunk,
-                bank_id=bank_id,
-                start_index=len(all_questions),
-                num_direct=num_direct,
-                num_logic=num_logic,
-            )
+    concurrency = max(1, settings.GENERATION_CHUNK_CONCURRENCY)
+    semaphore = asyncio.Semaphore(concurrency)
+    counter_lock = asyncio.Lock()
+    all_questions: List[dict] = []
+    processed = 0
+    limit_reached = False
+
+    async def process_chunk(index: int, chunk: str) -> None:
+        nonlocal processed, limit_reached
+        if limit_reached:
+            return
+        async with semaphore:
+            if limit_reached:
+                return
+            try:
+                questions = await generate_from_chunk(
+                    chunk=chunk,
+                    bank_id=bank_id,
+                    start_index=index * (num_direct + num_logic),
+                    num_direct=num_direct,
+                    num_logic=num_logic,
+                )
+            except Exception as e:
+                logger.warning("第 %s 块出题失败（%s）", index + 1, type(e).__name__)
+                questions = []
+
+        async with counter_lock:
+            processed += 1
             if max_questions is not None:
-                questions = questions[: max(0, max_questions - len(all_questions))]
+                remaining = max(0, max_questions - len(all_questions))
+                questions = questions[:remaining]
             all_questions.extend(questions)
-        except Exception as e:
-            logger.warning(f"第 {i+1} 块出题失败: {e}")
+            if max_questions is not None and len(all_questions) >= max_questions:
+                limit_reached = True
 
-        if progress_callback:
-            await progress_callback(
-                i + 1,
-                total,
-                len(all_questions),
-                f"正在处理第 {i+1}/{total} 个段落...",
-            )
+            # 回调放在锁内，保证进度写入严格单调递增，前端进度条不会回跳。
+            if progress_callback:
+                await progress_callback(
+                    processed,
+                    total,
+                    len(all_questions),
+                    f"正在处理第 {processed}/{total} 个段落...",
+                )
+
+    await asyncio.gather(
+        *(process_chunk(index, chunk) for index, chunk in enumerate(chunks))
+    )
 
     # 全局去重
     before = len(all_questions)
@@ -277,6 +312,6 @@ async def classify_questions_tags(questions: List[dict]) -> List[dict]:
                 tags = tag_list[i] if isinstance(tag_list[i], list) else [tag_list[i]]
                 q["tags"] = [str(tag).strip() for tag in tags if str(tag).strip()][:3]
     except Exception as e:
-        logger.warning(f"标签分类失败: {e}")
+        logger.warning("标签分类失败（%s）", type(e).__name__)
 
     return questions

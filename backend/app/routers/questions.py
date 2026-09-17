@@ -21,6 +21,7 @@ from ..database import get_db
 from ..models.question import GenerateTask, QuestionBank, Question, BankStatus, TaskStatus
 from ..models.user import User
 from ..schemas.question import QuestionBankListItem, QuestionBankOut, QuestionOut, QuestionPublicOut, QuestionCreate
+from ..services.bank_access import apply_bank_access, get_accessible_bank
 from ..services.question_service import get_current_wrong_question_ids, get_starred_question_ids
 
 router = APIRouter(prefix="/api", tags=["questions"])
@@ -36,16 +37,6 @@ def _bank_list_item(bank: QuestionBank, user: User) -> QuestionBankListItem:
     return item
 
 
-def _get_visible_bank(db: Session, bank_id: int, user: User) -> QuestionBank:
-    bank = db.query(QuestionBank).filter(
-        QuestionBank.id == bank_id,
-        QuestionBank.status != BankStatus.deleted,
-    ).first()
-    if not bank or (not user.is_admin and bank.status != BankStatus.ready):
-        raise HTTPException(404, "题库不存在")
-    return bank
-
-
 @router.get("/banks", response_model=List[QuestionBankListItem])
 def list_banks(
     skip: int = Query(0, ge=0),
@@ -54,11 +45,23 @@ def list_banks(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    query = db.query(QuestionBank).filter(QuestionBank.status == BankStatus.ready)
+    query = apply_bank_access(db.query(QuestionBank), current_user)
     if category:
         query = query.filter(QuestionBank.category == category)
     banks = query.order_by(QuestionBank.id.desc()).offset(skip).limit(limit).all()
     return [_bank_list_item(bank, current_user) for bank in banks]
+
+
+@router.get("/banks/categories", response_model=List[str])
+def list_bank_categories(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return every category visible to the user, independent of list pagination."""
+    query = db.query(QuestionBank.category)
+    query = apply_bank_access(query, current_user)
+    rows = query.filter(QuestionBank.category != "").distinct().order_by(QuestionBank.category).all()
+    return [category for (category,) in rows if category]
 
 
 @router.get("/banks/all", response_model=List[QuestionBankListItem])
@@ -81,7 +84,12 @@ def get_bank_detail(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    bank = _get_visible_bank(db, bank_id, current_user)
+    bank = get_accessible_bank(
+        db,
+        bank_id,
+        current_user,
+        require_ready=not current_user.is_admin,
+    )
 
     # 动态聚合所有标签
     questions = db.query(Question).filter(
@@ -106,7 +114,7 @@ def get_bank_tags(
     db: Session = Depends(get_db),
 ):
     """获取题库所有知识点标签（用于分类练习筛选）"""
-    _get_visible_bank(db, bank_id, current_user)
+    get_accessible_bank(db, bank_id, current_user, require_ready=not current_user.is_admin)
     questions = db.query(Question.tags).filter(
         Question.bank_id == bank_id,
         Question.status == "active",
@@ -171,6 +179,7 @@ def get_questions(
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     seed: Optional[int] = Query(None, ge=0, le=2147483647),
+    after_id: Optional[int] = Query(None, ge=0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -179,12 +188,10 @@ def get_questions(
     if bank_id is None and mode not in ("wrong", "starred"):
         raise HTTPException(400, "顺序和随机练习必须指定题库")
     if bank_id is not None:
-        _get_visible_bank(db, bank_id, current_user)
+        get_accessible_bank(db, bank_id, current_user)
 
-    query = db.query(Question).join(QuestionBank).filter(
-        Question.status == "active",
-        QuestionBank.status == BankStatus.ready,
-    )
+    query = db.query(Question).join(QuestionBank).filter(Question.status == "active")
+    query = apply_bank_access(query, current_user)
     if bank_id is not None:
         query = query.filter(Question.bank_id == bank_id)
 
@@ -214,10 +221,13 @@ def get_questions(
             return questions[skip:skip + limit]
         query = query.order_by(sa_func.random())
     elif ordered_ids is not None:
-        questions = query.all()
-        by_id = {q.id: q for q in questions}
-        ordered = [by_id[qid] for qid in ordered_ids if qid in by_id]
-        return ordered[skip:skip + limit]
+        # Wrong/starred membership can change while the user practices. ID
+        # keyset pagination keeps later pages stable when earlier items leave
+        # the set after a correct answer or an unstar action.
+        if after_id is not None:
+            query = query.filter(Question.id > after_id)
+            skip = 0
+        return query.order_by(Question.id).offset(skip).limit(limit).all()
     else:
         query = query.order_by(Question.order_index)
 
@@ -239,11 +249,9 @@ def count_questions(
     if bank_id is None and mode not in ("wrong", "starred"):
         raise HTTPException(400, "顺序和随机练习必须指定题库")
     if bank_id is not None:
-        _get_visible_bank(db, bank_id, current_user)
-    query = db.query(Question).join(QuestionBank).filter(
-        Question.status == "active",
-        QuestionBank.status == BankStatus.ready,
-    )
+        get_accessible_bank(db, bank_id, current_user)
+    query = db.query(Question).join(QuestionBank).filter(Question.status == "active")
+    query = apply_bank_access(query, current_user)
     if bank_id is not None:
         query = query.filter(Question.bank_id == bank_id)
     if mode == "wrong":
@@ -280,12 +288,16 @@ def get_question(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    q = db.query(Question).join(QuestionBank).filter(
+    query = db.query(Question).join(QuestionBank).filter(
         Question.id == question_id,
         Question.status == "active",
-        QuestionBank.status != BankStatus.deleted,
+    )
+    q = apply_bank_access(
+        query,
+        current_user,
+        require_ready=not current_user.is_admin,
     ).first()
-    if not q or (not current_user.is_admin and q.bank.status != BankStatus.ready):
+    if not q:
         raise HTTPException(404, "题目不存在")
     return q
 

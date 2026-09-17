@@ -56,7 +56,7 @@
 | 8 | `question_service.py:133-152` | 错题查询有死代码且全量加载用户所有答题记录，越用越慢 | ✅ SQL 侧取每题最新记录并限制结果 |
 | 9 | `question_service.py:304/396` | 正确率读改写无锁，并发提交丢更新 | ✅ 改为 SQL 原子更新 |
 | 10 | `ai_engine.py:264-268` | 标签分类未剥离 ```json 围栏，静默失败 | ✅ 已复用 `_parse_llm_output` 的剥离逻辑 |
-| 11 | `upload.py` | 单用户可无限提交出题任务（刷 DeepSeek 费用 + 磁盘） | ✅ 同时 pending/running ≤ 2，并限制单进程全局执行并发 |
+| 11 | `upload.py` | 单用户可无限提交出题任务（刷 DeepSeek 费用 + 磁盘） | ✅ 同时 pending/running ≤ 2、每日 ≤ 10、最短间隔 30 秒，并限制单进程全局执行并发 |
 | 12 | `deploy/docker-compose.yml` | 首次部署时证书不存在，nginx 挂载 443 配置会 **crash loop**；acme-challenge webroot 未挂载，HTTP-01 签发 404 | ✅ 增加 HTTP-only bootstrap compose 配置和签发步骤 |
 | 13 | `deploy/docker-compose.yml` | backend 无 healthcheck；MySQL 无备份方案 | ✅ 增加健康检查，并在部署清单中要求定时备份和恢复演练 |
 | 14 | `utils/request.js` | 轮询失败每 1.5s 弹一次 toast（网络抖动 = toast 轰炸） | ✅ 轮询使用 silent 请求并指数退避 |
@@ -76,7 +76,7 @@
 - `upload.wxml:72` `input type="url"` 非法，✅ 已改为 `type="text"`
 - `manage.wxml:37` `data-q="{{item}}"` 序列化整题对象，改传 index
 - 生产建议 uvicorn 加 `--proxy-headers`（头像 URL 生成场景）
-- 无登录/上传限流，nginx 层补 `limit_req`
+- 登录、上传和普通 API 已提供 Nginx `limit_req` 模板；上线时需同时安装 http 级 zone 配置
 
 ---
 
@@ -100,12 +100,26 @@
 
 1. `api.quizapp.chat` 完成 DNS A 记录和 HTTPS 证书部署，`/health` 返回 200。
 2. 微信后台配置 request/uploadFile 合法域名、隐私保护指引、备案信息，并用体验版真机验证一键登录、头像、文件选择和上传。
-3. 生产 `.env` 使用真实微信凭证、DeepSeek Key、随机 `SECRET_KEY`、MySQL 连接；执行三份 MySQL migration，完成备份和恢复演练。
-4. 接入微信 `msgSecCheck` 或等价内容安全审核，或在提审前明确人工审核和下架流程；当前页面提示不等于内容审核。
-5. 本机 Docker 不可用时，必须在部署主机执行镜像构建、Compose 启动、Nginx/证书联调和回滚演练。
+3. 生产 `.env` 使用真实微信凭证、未泄露的 `LLM_API_KEY`、HTTPS `LLM_BASE_URL`、随机 `SECRET_KEY`、MySQL 连接；执行四份 MySQL migration，完成备份和恢复演练。
+4. 当前普通用户只能访问自己创建的题库，不提供公开分享；未来增加公开题库前，必须接入微信 `msgSecCheck` 或等价审核，并提供人工复核与下架流程。
+5. 当前采用宝塔直部署，不依赖 Docker；发布前必须在部署主机执行依赖安装、服务重启、Nginx 配置检查和回滚演练。
 
 ## 2026-09-16 复审结果
 
 本轮已修复并回归验证：Docker 构建上下文排除 `.env` 和上传目录；AI 客户端超时/重试、整任务超时、零题目失败、标签 JSON 容错、单用户准入与全局执行并发上限；同步解析、文本分块、生成任务数据库操作和 SSE 查询移出事件循环；修复生成完成时 `pending -> ready` 状态条件；任务错误不再向前端暴露原始异常；上传进度、大小检查与轮询静默错误；跨题库错题/收藏练习；所有题目展示页补充 AI 内容标识；上传入口及隐私页明确 DeepSeek、Jina Reader、MinerU 第三方处理；注销账号同步软删除自建题库并清理上传源文件；考试、随机分页、答题统计、分类竞态等既有回归继续通过。
 
 自动化结果：后端 `34/34` 个 unittest、Python 编译、`pip check`、16 个小程序运行时 JS 语法、20 个 JSON、13 个页面四件套、3 个 TabBar 路由、86 个 WXML 事件绑定均通过；`app-auth.test.js` 登录会话回归和 `review-flow.test.js` 跨题库练习回归均通过，Compose YAML 结构校验通过。Docker 未安装，无法在本机执行镜像构建或 Compose 启动；微信开发者工具服务端口关闭，CLI 无法执行预览编译；真机登录、生产域名/DNS/HTTPS、DeepSeek/MinerU 实际调用仍需上线环境人工验证。
+
+## 2026-09-17 上线加固
+
+题库已改为创建者私有、管理员全局可管；服务重启会立即终止无法恢复的进程内任务并隐藏半成品；增加 PDF/DOCX 资源限制、北京时间自然日、持久化生成频率/每日额度、考试交卷原子占位、头像所有权限制、断点分页和分类/管理分页修复。AppID 已统一为 `wxaec3bef13eea7842`；本机专用远程同步脚本已从 Git 跟踪范围排除，已提交的 `.pyc` 和未引用图片已删除。
+
+自动化结果：后端 `47/47` 个 unittest、`pip check`、3 组小程序行为测试、全部小程序 JS 语法、JSON 解析和 13 个页面四件套通过。额外修复了上传元数据在文件落盘前校验、URL 提取文本字符上限、跨页练习完成状态，以及题库详情/学习报告的 AIGC 标识。生产 Nginx 限流需按 `docs/nginx/` 两份模板安装后执行 `nginx -t`；第三方模型/MinerU 真实调用和体验版真机全流程仍需在生产凭据下验证。
+
+自定义模型已统一使用成组校验的 `LLM_*` 配置，并保留 `DEEPSEEK_*` 整体兼容回退；完整 `/chat/completions` 地址会归一化为 API 根地址，生产环境拒绝明文 HTTP 模型端点。配置与密钥轮换要求见 `docs/custom-llm.md`。
+
+考试交卷结果现已持久化，重复提交同一 `session_id` 会返回同一成绩且不会重复写答题记录；倒计时使用服务端时长和绝对截止时间，切后台后不会暂停，归零直接自动交卷。错题、收藏和背题模式均支持分页，不再静默截断 100 道；LLM 解析日志不记录模型原文，生产配置会拒绝占位凭据。
+
+本轮继续完成账户注销隐私清理，注销时会清空自建题库及题目的源内容，仅保留不含原文的外键占位数据；错题和收藏练习改用题目 ID 游标翻页，已答对或取消收藏后不会跳过下一页；个人统计只计算当前仍可访问的有效题目；考试到时自动交卷遇到网络失败最多重试 3 次，之后保留手动交卷入口且不再循环弹窗。最新自动化结果为后端 `51/51` 个 unittest、4 组小程序行为测试、20 个小程序 JS、18 个 JSON 和 13 个页面四件套全部通过。
+
+2026-09-17 线上只读核验：Uvicorn 单 worker、Nginx 80/443、TLS 1.2/1.3、证书、MySQL 表结构和 `/health` 均正常，核验时线上 30 个核心后端文件与本地聚合哈希一致。线上 Nginx 限流共享区尚未安装，仍需按 `docs/nginx/` 模板配置后执行 `nginx -t` 并重载。

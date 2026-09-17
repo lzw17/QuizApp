@@ -19,6 +19,17 @@ from .models.user import User
 _bearer = HTTPBearer(auto_error=False)
 
 
+def is_configured_admin(openid: str) -> bool:
+    return bool(
+        openid in settings.admin_openids_set
+        or (
+            settings.WX_MOCK_LOGIN
+            and settings.WX_MOCK_ADMIN
+            and settings.APP_ENV.lower() == "development"
+        )
+    )
+
+
 def _b64encode(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
 
@@ -109,6 +120,11 @@ def get_current_user(
             detail="登录状态已失效，请重新登录",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    configured_admin = is_configured_admin(user.openid)
+    if user.is_admin != configured_admin:
+        user.is_admin = configured_admin
+        db.commit()
+        db.refresh(user)
     return user
 
 

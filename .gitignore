@@ -41,3 +41,7 @@ backend/uploads/
 /miniapp/project.private.config.json
 
 /.workbuddy/
+
+# Local server sync helper contains machine-specific credentials and paths.
+/scripts/ssh_sync.py
+/scripts/deploy-update.ps1

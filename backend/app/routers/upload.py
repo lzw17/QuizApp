@@ -9,12 +9,13 @@ import os
 import uuid
 import asyncio
 import socket
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 import ipaddress
 import aiofiles
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user
@@ -24,6 +25,8 @@ from ..models.user import User
 from ..schemas.question import UploadResponse, GenerateTaskOut
 from ..schemas.question import QuestionBankCreate
 from ..services.question_service import run_generate_task
+from ..services.doc_parser import validate_document_file
+from ..utils.time import local_day_utc_bounds, utc_now
 from ..config import settings
 
 router = APIRouter(prefix="/api", tags=["upload"])
@@ -32,16 +35,33 @@ ALLOWED_EXTENSIONS = {".pdf", ".docx"}
 _generation_admission_lock = asyncio.Lock()
 
 
-def _ensure_generation_capacity(db: Session, current_user: User) -> None:
-    """Limit concurrent AI jobs per user before accepting more input."""
-    active = db.query(GenerateTask.id).join(
+def _ensure_generation_capacity(
+    db: Session,
+    current_user: User,
+    *,
+    check_frequency: bool = True,
+) -> None:
+    """Apply persistent per-user concurrency, frequency, and daily limits."""
+    user_tasks = db.query(GenerateTask).join(
         QuestionBank, QuestionBank.id == GenerateTask.bank_id
     ).filter(
         QuestionBank.created_by == current_user.openid,
-        GenerateTask.status.in_(["pending", "running"]),
-    ).count()
+    )
+    active = user_tasks.filter(GenerateTask.status.in_(["pending", "running"])).count()
     if active >= settings.MAX_ACTIVE_GENERATION_TASKS:
         raise HTTPException(429, "当前已有任务正在生成，请稍后再试")
+    day_start, day_end = local_day_utc_bounds()
+    daily_count = user_tasks.filter(
+        GenerateTask.created_at >= day_start,
+        GenerateTask.created_at <= day_end,
+    ).count()
+    if daily_count >= settings.MAX_DAILY_GENERATION_TASKS:
+        raise HTTPException(429, "今日 AI 生成次数已用完，请明天再试")
+    if check_frequency and settings.MIN_GENERATION_INTERVAL_SECONDS:
+        recent_before = utc_now().timestamp() - settings.MIN_GENERATION_INTERVAL_SECONDS
+        recent_at = datetime.fromtimestamp(recent_before, tz=timezone.utc).replace(tzinfo=None)
+        if user_tasks.filter(GenerateTask.created_at >= recent_at).first():
+            raise HTTPException(429, "操作过于频繁，请稍后再试")
 
 
 def _create_generation_records(
@@ -82,6 +102,23 @@ class UrlUploadRequest(BaseModel):
     bank_category: str = Field(default="", max_length=100)
     num_direct: int = Field(default=3, ge=1, le=8)
     num_logic: int = Field(default=2, ge=0, le=8)
+
+
+def _build_bank_data(
+    name: str,
+    fallback_name: str,
+    description: str,
+    category: str,
+) -> QuestionBankCreate:
+    """Normalize user input before any upload is persisted."""
+    try:
+        return QuestionBankCreate(
+            name=name.strip() or fallback_name.strip(),
+            description=description,
+            category=category,
+        )
+    except ValidationError as exc:
+        raise HTTPException(400, "题库信息格式不正确") from exc
 
 
 def _validate_source_url(value: str) -> str:
@@ -161,12 +198,18 @@ async def upload_file(
     db: Session = Depends(get_db),
 ):
     """上传 PDF/DOCX 文档，异步生成题库"""
-    _ensure_generation_capacity(db, current_user)
+    _ensure_generation_capacity(db, current_user, check_frequency=False)
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(400, "不支持的文件类型，仅支持: .pdf, .docx")
 
     source_type = _get_source_type(file.filename or "")
+    bank_data = _build_bank_data(
+        bank_name,
+        os.path.splitext(file.filename or "未命名")[0],
+        bank_description,
+        bank_category,
+    )
 
     # 保存文件
     task_id = str(uuid.uuid4())
@@ -174,6 +217,13 @@ async def upload_file(
     await _save_upload(file, save_path)
     try:
         _validate_file_signature(save_path, source_type)
+        await asyncio.to_thread(validate_document_file, save_path, source_type)
+    except ValueError as exc:
+        try:
+            os.remove(save_path)
+        except OSError:
+            pass
+        raise HTTPException(400, str(exc))
     except Exception:
         try:
             os.remove(save_path)
@@ -181,11 +231,6 @@ async def upload_file(
             pass
         raise
 
-    bank_data = QuestionBankCreate(
-        name=bank_name or os.path.splitext(file.filename or "未命名")[0],
-        description=bank_description,
-        category=bank_category,
-    )
     try:
         # The production image intentionally runs one API worker. This lock
         # closes the check/create race between concurrent uploads in that worker.
@@ -230,15 +275,16 @@ async def upload_url(
     db: Session = Depends(get_db),
 ):
     """提交 URL，爬取页面内容并生成题库"""
-    _ensure_generation_capacity(db, current_user)
     url = await asyncio.to_thread(_validate_source_url, data.url)
+    _ensure_generation_capacity(db, current_user)
 
     task_id = str(uuid.uuid4())
 
-    bank_data = QuestionBankCreate(
-        name=data.bank_name or url[:50],
-        description=data.bank_description,
-        category=data.bank_category,
+    bank_data = _build_bank_data(
+        data.bank_name,
+        url[:50],
+        data.bank_description,
+        data.bank_category,
     )
     async with _generation_admission_lock:
         _ensure_generation_capacity(db, current_user)
@@ -304,6 +350,7 @@ async def task_sse(
     import json
 
     _get_owned_task(db, task_id, current_user)
+    db.close()
 
     def read_task_snapshot():
         poll_db = SessionLocal()

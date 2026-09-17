@@ -3,14 +3,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-function loadApp({ initialStorage = {}, handleRequest } = {}) {
+function loadApp({ initialStorage = {}, handleRequest, platform = 'devtools', envVersion = 'develop' } = {}) {
   const storage = new Map(Object.entries(initialStorage));
-  const calls = { login: 0, requests: [], relaunches: [] };
+  const calls = { login: 0, requests: [], relaunches: [], errors: [] };
   let app;
 
   const wx = {
-    getSystemInfoSync: () => ({ platform: 'devtools' }),
-    getAccountInfoSync: () => ({ miniProgram: { envVersion: 'develop' } }),
+    getDeviceInfo: () => ({ platform }),
+    getSystemInfoSync: () => ({ platform }),
+    getAccountInfoSync: () => ({ miniProgram: { envVersion } }),
     getStorageSync: key => storage.get(key),
     setStorageSync: (key, value) => storage.set(key, value),
     removeStorageSync: key => storage.delete(key),
@@ -38,7 +39,11 @@ function loadApp({ initialStorage = {}, handleRequest } = {}) {
     App(definition) { app = definition; },
     Error,
     Promise,
-    console,
+    console: {
+      log: console.log,
+      warn: console.warn,
+      error: (...args) => calls.errors.push(args),
+    },
     setTimeout,
     clearTimeout,
     wx,
@@ -76,10 +81,64 @@ async function testFirstLaunchWaitsForOneTapLogin() {
   assert.equal(fixture.calls.login, 1);
   assert.equal(requestOptions.url, 'http://127.0.0.1:8000/api/auth/login');
   assert.equal(requestOptions.data.code, 'wx-one-time-code');
+  assert.equal(requestOptions.timeout, 15000);
   assert.equal(fixture.app.globalData.accessToken, 'app-token');
   assert.equal(fixture.app.globalData.isNewUser, true);
   assert.equal(fixture.app.globalData.profileRequired, false);
   assert.equal(fixture.storage.get('accessToken'), 'app-token');
+}
+
+async function testRealDeviceDevelopUsesProductionHttps() {
+  const fixture = loadApp({ platform: 'android' });
+
+  fixture.app.onLaunch();
+  await fixture.app.globalData.sessionRestorePromise;
+
+  assert.equal(fixture.app.globalData.baseUrl, 'https://api.quizapp.chat');
+  assert.equal(fixture.calls.requests.length, 0);
+}
+
+async function testLoginReportsRequestDomainFailure() {
+  const fixture = loadApp({
+    platform: 'android',
+    handleRequest(options) {
+      options.fail({
+        errMsg: 'request:fail url not in domain list',
+        errno: 600001,
+      });
+    },
+  });
+
+  fixture.app.onLaunch();
+  await fixture.app.globalData.sessionRestorePromise;
+
+  await assert.rejects(
+    fixture.app.wxLogin(),
+    /API 域名未加入微信 request 合法域名/,
+  );
+  assert.equal(fixture.calls.requests[0].timeout, 15000);
+  assert.equal(fixture.calls.errors.length, 1);
+  assert.equal(fixture.calls.errors[0][1].errno, 600001);
+}
+
+async function testLoginReportsAbortedConnection() {
+  const fixture = loadApp({
+    platform: 'android',
+    handleRequest(options) {
+      options.fail({
+        errMsg: 'request:fail net::ERR_CONNECTION_CLOSED',
+        errno: -100,
+      });
+    },
+  });
+
+  fixture.app.onLaunch();
+  await fixture.app.globalData.sessionRestorePromise;
+
+  await assert.rejects(
+    fixture.app.wxLogin(),
+    /服务器连接被中止，请检查 HTTPS\/TLS 配置/,
+  );
 }
 
 async function testCachedSessionIsVerifiedWithoutWxLogin() {
@@ -165,6 +224,9 @@ async function testLogoutRequiresManualLogin() {
 
 (async () => {
   await testFirstLaunchWaitsForOneTapLogin();
+  await testRealDeviceDevelopUsesProductionHttps();
+  await testLoginReportsRequestDomainFailure();
+  await testLoginReportsAbortedConnection();
   await testCachedSessionIsVerifiedWithoutWxLogin();
   await testExpiredCachedSessionWaitsForOneTapLogin();
   await testLogoutRequiresManualLogin();

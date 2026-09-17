@@ -16,6 +16,7 @@
         <text class="meta-sep">·</text>
         <text class="meta-item tag" wx:if="{{bank.category}}">{{bank.category}}</text>
       </view>
+      <view class="aigc-badge bank-aigc">AI 生成 · 仅供参考</view>
       </view>
     </view>
   </view>

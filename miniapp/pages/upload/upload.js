@@ -26,6 +26,38 @@ Page({
   incLogic()  { if (this.data.numLogic < 8) this.setData({ numLogic: this.data.numLogic + 1 }); },
   decLogic()  { if (this.data.numLogic > 0) this.setData({ numLogic: this.data.numLogic - 1 }); },
 
+  _formatFileSize(size) {
+    if (!Number.isFinite(size)) return '大小未知';
+    if (size < 1024 * 1024) return `${Math.max(1, Math.ceil(size / 1024))} KB`;
+    return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  },
+
+  _validateSelectedFile(file) {
+    if (!file || !file.path || file.sizeBytes <= 0) {
+      return Promise.reject(new Error('文件为空或已失效，请重新选择'));
+    }
+    if (typeof wx.getFileSystemManager !== 'function') return Promise.resolve();
+
+    const fileSystemManager = wx.getFileSystemManager();
+    if (!fileSystemManager || typeof fileSystemManager.stat !== 'function') {
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      fileSystemManager.stat({
+        path: file.path,
+        success: result => {
+          const stats = result && result.stats;
+          if (stats && typeof stats.size === 'number' && stats.size <= 0) {
+            reject(new Error('文件为空，请重新选择'));
+            return;
+          }
+          resolve();
+        },
+        fail: () => reject(new Error('所选文件已失效，请重新选择')),
+      });
+    });
+  },
+
   chooseFile() {
     wx.chooseMessageFile({
       count: 1,
@@ -33,16 +65,19 @@ Page({
       extension: ['pdf', 'docx'],
       success: (res) => {
         const file = res.tempFiles[0];
-        if (!file || file.size > 50 * 1024 * 1024) {
+        if (!file || !file.path || file.size <= 0) {
+          wx.showToast({ title: '文件为空，请重新选择', icon: 'none' });
+          return;
+        }
+        if (file.size > 50 * 1024 * 1024) {
           wx.showToast({ title: '文件不能超过 50MB', icon: 'none' });
           return;
         }
-        const sizeMB = (file.size / 1024 / 1024).toFixed(1);
         this.setData({
           selectedFile: {
             path: file.path,
             name: file.name,
-            size: `${sizeMB} MB`,
+            size: this._formatFileSize(file.size),
             sizeBytes: file.size,
           },
             bankName: this.data.bankName || file.name.replace(/\.(pdf|docx)$/i, ''),
@@ -65,6 +100,16 @@ Page({
     }
     if (sourceType === 'url' && !inputUrl.trim()) {
       wx.showToast({ title: '请输入链接', icon: 'none' }); return;
+    }
+
+    if (sourceType === 'file') {
+      try {
+        await this._validateSelectedFile(selectedFile);
+      } catch (error) {
+        this.setData({ selectedFile: null });
+        wx.showToast({ title: error.message, icon: 'none' });
+        return;
+      }
     }
 
     this.setData({ submitting: true });

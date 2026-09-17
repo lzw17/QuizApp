@@ -9,7 +9,6 @@ import os
 import re
 import uuid
 import logging
-from datetime import datetime
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -19,10 +18,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..auth import create_access_token, get_current_user
+from ..auth import create_access_token, get_current_user, is_configured_admin
 from ..database import get_db
 from ..models.question import (
     BankStatus,
+    ExamSubmission,
     ExamSession,
     GenerateTask,
     Question,
@@ -32,6 +32,7 @@ from ..models.question import (
 from ..models.user import AnswerRecord, User, UserProgress
 from ..schemas.user import UserOut
 from ..config import settings
+from ..utils.time import utc_now
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -57,17 +58,6 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "Bearer"
     expires_in: int
-
-
-def _is_configured_admin(openid: str) -> bool:
-    return bool(
-        openid in settings.admin_openids_set
-        or (
-            settings.WX_MOCK_LOGIN
-            and settings.WX_MOCK_ADMIN
-            and settings.APP_ENV.lower() == "development"
-        )
-    )
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -98,9 +88,9 @@ async def wx_login(data: LoginRequest, db: Session = Depends(get_db)):
             if not user:
                 raise HTTPException(500, "创建用户失败")
 
-    user.is_admin = _is_configured_admin(openid)
+    user.is_admin = is_configured_admin(openid)
 
-    user.last_login = datetime.utcnow()
+    user.last_login = utc_now()
     db.commit()
     db.refresh(user)
     access_token, expires_in = create_access_token(user.id, user.token_version or 0)
@@ -119,11 +109,6 @@ def get_me(
     db: Session = Depends(get_db),
 ):
     """Validate the application session and return the current user."""
-    configured_admin = _is_configured_admin(current_user.openid)
-    if current_user.is_admin != configured_admin:
-        current_user.is_admin = configured_admin
-        db.commit()
-        db.refresh(current_user)
     return UserOut.model_validate(current_user)
 
 
@@ -163,16 +148,33 @@ def delete_account(
     db.query(UserProgress).filter(UserProgress.user_id == current_user.id).delete(
         synchronize_session=False
     )
+    db.query(ExamSubmission).filter(ExamSubmission.user_id == current_user.id).delete(
+        synchronize_session=False
+    )
     db.query(ExamSession).filter(ExamSession.user_id == current_user.id).delete(
         synchronize_session=False
     )
     if owned_bank_ids:
         db.query(Question).filter(Question.bank_id.in_(owned_bank_ids)).update(
-            {Question.status: "deleted"},
+            {
+                Question.content: "",
+                Question.options: [],
+                Question.answer: "",
+                Question.explanation: "",
+                Question.tags: [],
+                Question.status: "deleted",
+            },
             synchronize_session=False,
         )
         db.query(QuestionBank).filter(QuestionBank.id.in_(owned_bank_ids)).update(
             {
+                QuestionBank.name: "已删除题库",
+                QuestionBank.description: "",
+                QuestionBank.cover: "",
+                QuestionBank.category: "",
+                QuestionBank.total_count: 0,
+                QuestionBank.source_file: "",
+                QuestionBank.source_type: "",
                 QuestionBank.created_by: "",
                 QuestionBank.status: BankStatus.deleted,
             },
@@ -317,32 +319,20 @@ def update_profile(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """更新用户昵称或头像 URL"""
+    """Update profile text; avatar replacement is handled only by /avatar."""
     nickname = data.nickname.strip()
     if nickname:
         current_user.nickname = nickname
-    if data.avatar and data.avatar != (current_user.avatar or ""):
-        parsed = urlparse(data.avatar)
-        configured_base = settings.PUBLIC_BASE_URL.strip().rstrip("/")
-        expected_path = "/uploads/avatars/"
-        if configured_base:
-            base = urlparse(configured_base)
-            valid_avatar = (
-                parsed.scheme == base.scheme
-                and parsed.netloc == base.netloc
-                and parsed.path.startswith(expected_path)
-            )
-        else:
-            valid_avatar = (
-                not parsed.scheme
-                and not parsed.netloc
-                and parsed.path.startswith(expected_path)
-            )
-        if not valid_avatar:
-            raise HTTPException(400, "头像地址无效")
-        current_user.avatar = data.avatar
+    old_avatar = ""
+    if data.avatar != (current_user.avatar or ""):
+        if data.avatar:
+            raise HTTPException(400, "请通过头像上传接口更换头像")
+        old_avatar = current_user.avatar or ""
+        current_user.avatar = ""
     db.commit()
     db.refresh(current_user)
+    if old_avatar:
+        _remove_owned_avatar(old_avatar)
     return UserOut.model_validate(current_user)
 
 

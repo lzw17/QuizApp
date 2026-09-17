@@ -1,3 +1,31 @@
+const AUTH_REQUEST_TIMEOUT_MS = 15000;
+
+function describeAuthRequestFailure(error) {
+  const errMsg = String((error && error.errMsg) || '').toLowerCase();
+
+  if (errMsg.includes('domain list') || errMsg.includes('url not in domain')) {
+    return 'API 域名未加入微信 request 合法域名';
+  }
+  if (/certificate|err_cert|ssl|tls/.test(errMsg)) {
+    return '服务器 HTTPS 证书异常，请联系管理员';
+  }
+  if (/timeout|timed out/.test(errMsg)) {
+    return '登录请求超时，请检查服务器 HTTPS';
+  }
+  if (/abort|connection reset|connection closed|err_connection/.test(errMsg)) {
+    return '服务器连接被中止，请检查 HTTPS/TLS 配置';
+  }
+  return '网络连接失败，请检查 API 域名与服务器';
+}
+
+function logAuthRequestFailure(stage, error) {
+  console.error('[auth] request failed', {
+    stage,
+    errMsg: (error && error.errMsg) || 'unknown',
+    errno: error && error.errno,
+  });
+}
+
 App({
   globalData: {
     userInfo: null,
@@ -8,8 +36,7 @@ App({
     sessionVersion: 0,
     isNewUser: false,
     profileRequired: false,
-    baseUrl: 'https://api.quizapp.chat', // 生产域名；需在微信后台配置 request/uploadFile 合法域名
-    devLanUrl: 'http://192.168.71.4:8000', // 局域网真机调试用
+    baseUrl: 'https://api.quizapp.chat', // 真机、体验版和正式版统一使用生产 HTTPS 域名
   },
 
   onLaunch() {
@@ -31,11 +58,9 @@ App({
     const platform = deviceInfo.platform || '';
     const accountInfo = wx.getAccountInfoSync ? wx.getAccountInfoSync() : {};
     const envVersion = (accountInfo.miniProgram && accountInfo.miniProgram.envVersion) || 'develop';
-    if (envVersion === 'develop') {
-      // 开发版使用本地服务；体验版和正式版保留上面的 HTTPS 生产域名。
-      this.globalData.baseUrl = platform === 'devtools'
-        ? 'http://127.0.0.1:8000'
-        : this.globalData.devLanUrl;
+    if (envVersion === 'develop' && platform === 'devtools') {
+      // 仅开发者工具连接本机；真机调试也必须使用已备案的 HTTPS 域名。
+      this.globalData.baseUrl = 'http://127.0.0.1:8000';
     }
     const sessionPromise = this._initializeSession();
     this.globalData.sessionRestorePromise = sessionPromise;
@@ -76,6 +101,7 @@ App({
       wx.request({
         url: `${this.globalData.baseUrl}/api/auth/me`,
         header: { Authorization: `Bearer ${token}` },
+        timeout: AUTH_REQUEST_TIMEOUT_MS,
         success: (res) => {
           if (sessionVersion !== this.globalData.sessionVersion) {
             resolve(null);
@@ -93,7 +119,8 @@ App({
             resolve(cached);
           }
         },
-        fail: () => {
+        fail: error => {
+          logAuthRequestFailure('restore-session', error);
           if (sessionVersion !== this.globalData.sessionVersion) {
             resolve(null);
             return;
@@ -142,6 +169,7 @@ App({
         url: `${self.globalData.baseUrl}/api/auth/login`,
         method: 'POST',
         data: { code },
+        timeout: AUTH_REQUEST_TIMEOUT_MS,
         success(r) {
           if (r.statusCode === 200) {
             const user = r.data && r.data.user;
@@ -160,7 +188,10 @@ App({
             reject(new Error(message));
           }
         },
-        fail: () => reject(new Error('网络连接失败，请稍后重试')),
+        fail(error) {
+          logAuthRequestFailure('login', error);
+          reject(new Error(describeAuthRequestFailure(error)));
+        },
       });
     });
   },

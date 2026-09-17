@@ -9,7 +9,7 @@ import os
 from .config import settings
 from .database import create_tables, SessionLocal, engine
 from .routers import upload, questions, practice, auth
-from .services.question_service import recover_stale_tasks
+from .services.question_service import recover_interrupted_tasks
 
 app = FastAPI(
     title=f"{settings.APP_NAME} API",
@@ -47,7 +47,7 @@ async def startup():
     create_tables()
     db = SessionLocal()
     try:
-        recover_stale_tasks(db, settings.TASK_STALE_MINUTES)
+        recover_interrupted_tasks(db)
     finally:
         db.close()
 

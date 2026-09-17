@@ -57,6 +57,52 @@ function testWrongBookUsesGlobalReviewRoutes() {
   ]);
 }
 
+function testWrongBookFilterRefreshesActiveList() {
+  const page = loadPage('pages/wrong-book/wrong-book.js', {
+    requestModule: { request: async () => [], getUserId: async () => 1 },
+    wx: {},
+  });
+  let wrongLoads = 0;
+  let starLoads = 0;
+  page._loadWrong = () => { wrongLoads += 1; };
+  page._loadStars = () => { starLoads += 1; };
+  page.data.activeTab = 'star';
+  page.setFilter({ currentTarget: { dataset: { id: '22' } } });
+  assert.equal(page.data.filterBankId, 22);
+  assert.equal(starLoads, 1);
+  assert.equal(wrongLoads, 0);
+}
+
+async function testWrongBookLoadsEveryPage() {
+  const calls = [];
+  const page = loadPage('pages/wrong-book/wrong-book.js', {
+    requestModule: {
+      getUserId: async () => 1,
+      request: async options => {
+        calls.push(options.url);
+        if (options.url.startsWith('/api/questions/count?')) return { total: 60 };
+        const skip = Number((options.url.match(/skip=(\d+)/) || [])[1] || 0);
+        const size = skip === 0 ? 50 : 10;
+        return Array.from({ length: size }, (_, index) => ({
+          record_id: skip + index + 1,
+          answered_at: '2026-09-17T10:00:00',
+          question: { id: skip + index + 1 },
+        }));
+      },
+    },
+    wx: {},
+  });
+
+  await page._loadWrong('', false);
+  assert.equal(page.data.wrongList.length, 50);
+  assert.equal(page.data.wrongTotal, 60);
+  assert.equal(page.data.wrongHasMore, true);
+  await page._loadWrong('', true);
+  assert.equal(page.data.wrongList.length, 60);
+  assert.equal(page.data.wrongHasMore, false);
+  assert.ok(calls.some(url => url.includes('skip=50')));
+}
+
 async function testPracticeUsesQuestionBankId() {
   const calls = [];
   const question = {
@@ -104,9 +150,128 @@ async function testPracticeUsesQuestionBankId() {
   assert.equal(starRequest.data.bank_id, 22);
 }
 
+async function testPracticePaginationKeepsResumeOffset() {
+  const calls = [];
+  const page = loadPage('pages/practice/practice.js', {
+    app: {},
+    requestModule: {
+      getUserId: async () => 1,
+      request: async options => {
+        calls.push(options.url);
+        if (options.url.includes('/api/questions/count?')) return { total: 250 };
+        const match = options.url.match(/skip=(\d+)/);
+        const skip = match ? Number(match[1]) : 0;
+        const size = skip === 200 ? 50 : 100;
+        return Array.from({ length: size }, (_, index) => ({
+          id: skip + index + 1,
+          bank_id: 7,
+          type: 'single',
+          options: [{ key: 'A', text: 'answer' }],
+        }));
+      },
+    },
+    wx: { showToast: () => {} },
+  });
+  page.data.bankId = 7;
+  page.data.mode = 'sequential';
+
+  await page._loadQuestions(100);
+  assert.equal(page.data.startSkip, 100);
+  assert.equal(page.data.questions.length, 100);
+  assert.equal(page.data.hasMore, true);
+
+  page._showQuestion(99);
+  assert.equal(page.data.isLast, false);
+  await page.nextQuestion();
+  assert.ok(calls.some(url => url.includes('skip=200')));
+  assert.equal(page.data.questions.length, 150);
+  assert.equal(page.data.hasMore, false);
+  page._showQuestion(149);
+  assert.equal(page.data.isLast, true);
+}
+
+async function testWrongPracticeUsesStableCursorForLaterPages() {
+  const calls = [];
+  const page = loadPage('pages/practice/practice.js', {
+    app: {},
+    requestModule: {
+      getUserId: async () => 1,
+      request: async options => {
+        calls.push(options.url);
+        if (options.url.includes('/api/questions/count?')) return { total: 101 };
+        const after = Number((options.url.match(/after_id=(\d+)/) || [])[1] || 0);
+        const start = after ? after + 1 : 1;
+        const size = after ? 1 : 100;
+        return Array.from({ length: size }, (_, index) => ({
+          id: start + index,
+          bank_id: 7,
+          type: 'single',
+          options: [{ key: 'A', text: 'answer' }],
+        }));
+      },
+    },
+    wx: { showToast: () => {} },
+  });
+  page.data.bankId = 7;
+  page.data.mode = 'wrong';
+
+  await page._loadQuestions(0);
+  assert.equal(page.data.questions.length, 100);
+  assert.equal(page._reviewCursorId, 100);
+  await page._loadQuestions(100, true);
+  assert.ok(calls.some(url => url.includes('after_id=100')));
+  assert.equal(calls.some(url => url.includes('mode=wrong&skip=100')), false);
+  assert.equal(page.data.questions.length, 101);
+  assert.equal(page.data.questions[100].id, 101);
+}
+
+async function testMemorizeModeLoadsPastOneHundredQuestions() {
+  const calls = [];
+  const page = loadPage('pages/practice/practice.js', {
+    app: {},
+    requestModule: {
+      getUserId: async () => 1,
+      request: async options => {
+        calls.push(options.url);
+        if (options.url.includes('/api/questions/count?')) return { total: 120 };
+        const after = Number((options.url.match(/after_id=(\d+)/) || [])[1] || 0);
+        const start = after ? after + 1 : 1;
+        const size = after ? 20 : 100;
+        return Array.from({ length: size }, (_, index) => ({
+          id: start + index,
+          bank_id: 7,
+          type: 'single',
+          options: [{ key: 'A', text: 'answer' }],
+          answer: 'A',
+          explanation: '',
+        }));
+      },
+    },
+    wx: { showToast: () => {} },
+  });
+  page.data.mode = 'memorize';
+  page.data.isMemorize = true;
+  page.data.source = 'starred';
+
+  await page._loadQuestions(0);
+  assert.equal(page.data.questions.length, 100);
+  assert.equal(page.data.hasMore, true);
+  page._showQuestion(99);
+  await page.nextQuestion();
+  assert.equal(page.data.questions.length, 120);
+  assert.equal(page.data.hasMore, false);
+  assert.ok(calls.some(url => url.includes('after_id=100')));
+  assert.equal(calls.some(url => url.includes('source=starred&skip=100')), false);
+}
+
 async function main() {
   testWrongBookUsesGlobalReviewRoutes();
+  testWrongBookFilterRefreshesActiveList();
+  await testWrongBookLoadsEveryPage();
   await testPracticeUsesQuestionBankId();
+  await testPracticePaginationKeepsResumeOffset();
+  await testWrongPracticeUsesStableCursorForLaterPages();
+  await testMemorizeModeLoadsPastOneHundredQuestions();
   console.log('miniapp review flow tests passed');
 }
 

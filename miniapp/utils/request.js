@@ -58,6 +58,43 @@ function getUserId() {
   return Promise.resolve(null);
 }
 
+function describeUploadFailure(error) {
+  const errMsg = String((error && error.errMsg) || '').toLowerCase();
+
+  if (errMsg.includes('domain list') || errMsg.includes('url not in domain')) {
+    return '上传域名未加入微信 uploadFile 合法域名';
+  }
+  if (/no such file|file not found|invalid file|read file|stat file/.test(errMsg)) {
+    return '所选文件已失效，请重新选择';
+  }
+  if (/certificate|err_cert|ssl|tls/.test(errMsg)) {
+    return '服务器 HTTPS 证书异常，请联系管理员';
+  }
+  if (/timeout|timed out/.test(errMsg)) {
+    return '文件上传超时，请检查网络后重试';
+  }
+  if (/abort|connection reset|connection closed|err_connection/.test(errMsg)) {
+    return '服务器连接被中止，请稍后重试';
+  }
+  return '文件上传失败，请检查网络后重试';
+}
+
+function buildUploadError(error) {
+  const uploadError = new Error(describeUploadFailure(error));
+  uploadError.errMsg = (error && error.errMsg) || '';
+  uploadError.errno = error && error.errno;
+  return uploadError;
+}
+
+function logUploadFailure(error) {
+  const errMsg = String((error && error.errMsg) || 'unknown')
+    .replace(/(?:wxfile|file|https?):\/\/\S+/gi, '[file-or-url-redacted]');
+  console.error('[upload] failed', {
+    errMsg,
+    errno: error && error.errno,
+  });
+}
+
 /** 上传文件（multipart/form-data） */
 function uploadFile(filePath, formData = {}, options = {}) {
   return requireSession().then(() => _uploadFile(filePath, formData, options, false));
@@ -94,9 +131,10 @@ function _uploadFile(filePath, formData, options, retried) {
           reject(new Error(msg));
         }
       },
-      fail() {
-        const error = new Error('网络错误，请检查连接');
-        wx.showToast({ title: error.message, icon: 'none' });
+      fail(rawError) {
+        logUploadFailure(rawError);
+        const error = buildUploadError(rawError);
+        if (!options.silent) wx.showToast({ title: error.message, icon: 'none' });
         reject(error);
       },
     });
@@ -111,7 +149,8 @@ function pollTask(taskId, onProgress, onDone, onError) {
   let timer = null;
   let stopped = false;
   const startedAt = Date.now();
-  const maxWaitMs = 10 * 60 * 1000;
+  // 后端单次出题最长 30 分钟，前端等待上限要覆盖它，否则任务还在跑就先报超时。
+  const maxWaitMs = 30 * 60 * 1000;
   let delay = 1500;
 
   function poll() {
