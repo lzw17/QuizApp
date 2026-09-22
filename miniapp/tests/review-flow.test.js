@@ -103,6 +103,82 @@ async function testWrongBookLoadsEveryPage() {
   assert.ok(calls.some(url => url.includes('skip=50')));
 }
 
+async function testWrongBookShowsAnswerOptionText() {
+  const question = {
+    id: 1,
+    type: 'single',
+    answer: 'B',
+    options: [
+      { key: 'A', text: '康拉德面' },
+      { key: 'B', text: '莫霍面' },
+    ],
+  };
+  const page = loadPage('pages/wrong-book/wrong-book.js', {
+    requestModule: {
+      getUserId: async () => 1,
+      request: async options => {
+        if (options.url.startsWith('/api/wrong-questions')) {
+          return [{ record_id: 1, user_answer: 'A', answered_at: '', question }];
+        }
+        if (options.url.startsWith('/api/starred-questions')) return [question];
+        if (options.url.startsWith('/api/questions/count')) return { total: 1 };
+        throw new Error(`Unexpected request: ${options.url}`);
+      },
+    },
+    wx: {},
+  });
+
+  await page._loadWrong('', false);
+  assert.equal(page.data.wrongList[0].userAnswerText, 'A. 康拉德面');
+  assert.equal(page.data.wrongList[0].correctAnswerText, 'B. 莫霍面');
+  await page._loadStars('', false);
+  assert.equal(page.data.starList[0].correctAnswerText, 'B. 莫霍面');
+}
+
+function testProfileStatsNavigateToExpectedPages() {
+  const tabNavigations = [];
+  const pageNavigations = [];
+  const reviewTabs = [];
+  const page = loadPage('pages/profile/profile.js', {
+    app: { globalData: {} },
+    requestModule: { request: async () => ({}), getUserId: async () => 1 },
+    wx: {
+      switchTab: options => tabNavigations.push(options.url),
+      navigateTo: options => pageNavigations.push(options.url),
+      setStorageSync: (key, value) => {
+        if (key === 'wrongBookActiveTab') reviewTabs.push(value);
+      },
+    },
+  });
+
+  page.goBanks();
+  page.goWrongBook();
+  page.goStarred();
+  page.goReport();
+  assert.deepEqual(tabNavigations, [
+    '/pages/index/index',
+    '/pages/wrong-book/wrong-book',
+    '/pages/wrong-book/wrong-book',
+  ]);
+  assert.deepEqual(reviewTabs, ['wrong', 'star']);
+  assert.deepEqual(pageNavigations, ['/pages/report/report']);
+}
+
+function testWrongBookConsumesPendingTab() {
+  const removed = [];
+  const page = loadPage('pages/wrong-book/wrong-book.js', {
+    requestModule: { request: async () => [], getUserId: async () => 1 },
+    wx: {
+      getStorageSync: key => key === 'wrongBookActiveTab' ? 'star' : '',
+      removeStorageSync: key => removed.push(key),
+    },
+  });
+  page._loadAll = () => Promise.resolve();
+  page.onShow();
+  assert.equal(page.data.activeTab, 'star');
+  assert.ok(removed.includes('wrongBookActiveTab'));
+}
+
 async function testPracticeUsesQuestionBankId() {
   const calls = [];
   const question = {
@@ -268,6 +344,9 @@ async function main() {
   testWrongBookUsesGlobalReviewRoutes();
   testWrongBookFilterRefreshesActiveList();
   await testWrongBookLoadsEveryPage();
+  await testWrongBookShowsAnswerOptionText();
+  testProfileStatsNavigateToExpectedPages();
+  testWrongBookConsumesPendingTab();
   await testPracticeUsesQuestionBankId();
   await testPracticePaginationKeepsResumeOffset();
   await testWrongPracticeUsesStableCursorForLaterPages();

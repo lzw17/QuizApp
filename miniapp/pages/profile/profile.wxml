@@ -36,33 +36,37 @@
 
   <!-- 详细统计卡片 -->
   <view class="detail-cards">
-    <view class="detail-card card">
+    <view class="detail-card card" bindtap="goBanks" hover-class="detail-card-pressed">
       <image class="dc-icon-img" src="/images/page/book.png" />
       <view class="dc-content">
         <view class="dc-num">{{stats.banks_studied || 0}}</view>
         <view class="dc-label">学习过的题库</view>
       </view>
+      <text class="dc-arrow">›</text>
     </view>
-    <view class="detail-card card">
+    <view class="detail-card card" bindtap="goWrongBook" hover-class="detail-card-pressed">
       <image class="dc-icon-img" src="/images/page/wrong.png" />
       <view class="dc-content">
         <view class="dc-num">{{stats.wrong_count || 0}}</view>
         <view class="dc-label">错题数量</view>
       </view>
+      <text class="dc-arrow">›</text>
     </view>
-    <view class="detail-card card">
+    <view class="detail-card card" bindtap="goStarred" hover-class="detail-card-pressed">
       <image class="dc-icon-img" src="/images/page/favorite.png" />
       <view class="dc-content">
         <view class="dc-num">{{stats.starred_count || 0}}</view>
         <view class="dc-label">收藏题目</view>
       </view>
+      <text class="dc-arrow">›</text>
     </view>
-    <view class="detail-card card">
+    <view class="detail-card card" bindtap="goReport" hover-class="detail-card-pressed">
       <image class="dc-icon-img" src="/images/page/date.png" />
       <view class="dc-content">
         <view class="dc-num">{{stats.streak_days || 0}}</view>
         <view class="dc-label">连续天数</view>
       </view>
+      <text class="dc-arrow">›</text>
     </view>
   </view>
 

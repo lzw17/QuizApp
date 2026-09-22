@@ -61,8 +61,11 @@
 /* 详细卡片 */
 .detail-cards { display: flex; flex-wrap: wrap; padding: 0 22rpx; gap: 16rpx; margin-bottom: 20rpx; }
 .detail-card { flex: 1; min-width: 40%; border-radius: 16rpx; padding: 24rpx; display: flex; align-items: center; gap: 16rpx; }
+.detail-card-pressed { background: #F1F5FF; }
 .dc-icon { font-size: 52rpx; }
 .dc-icon-img { width: 60rpx; height: 60rpx; flex-shrink: 0; }
+.dc-content { flex: 1; min-width: 0; }
+.dc-arrow { color: #C5CAD6; font-size: 34rpx; line-height: 1; }
 .dc-num { font-size: 44rpx; font-weight: 700; color: #333; }
 .dc-num.red    { color: var(--color-danger); }
 .dc-num.yellow { color: #FAAD14; }

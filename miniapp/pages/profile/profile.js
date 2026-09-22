@@ -42,7 +42,13 @@ Page({
   },
 
   goEditProfile() { wx.navigateTo({ url: '/pages/login/login?edit=1' }); },
-  goWrongBook() { wx.switchTab({ url: '/pages/wrong-book/wrong-book' }); },
+  goBanks() { wx.switchTab({ url: '/pages/index/index' }); },
+  _goReviewTab(tab) {
+    wx.setStorageSync('wrongBookActiveTab', tab);
+    wx.switchTab({ url: '/pages/wrong-book/wrong-book' });
+  },
+  goWrongBook() { this._goReviewTab('wrong'); },
+  goStarred() { this._goReviewTab('star'); },
   goReport() { wx.navigateTo({ url: '/pages/report/report' }); },
   goPrivacy() { wx.navigateTo({ url: '/pages/privacy/privacy' }); },
   goUpload()    { wx.navigateTo({ url: '/pages/upload/upload' }); },

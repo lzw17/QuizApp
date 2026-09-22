@@ -18,6 +18,7 @@ Page({
     currentIndex: 0,
     currentQ: null,
     userAnswers: [],    // 索引对应题目，值为选择的答案字符串
+    selectedKeys: {},   // WXML 直接读取，避免在模板表达式中调用 Array/String 方法
     sessionId: '',
     answeredCount: 0,
     submitting: false,
@@ -124,6 +125,7 @@ Page({
         questionCount: list.length,
         sessionId: exam.session_id,
         userAnswers: new Array(list.length).fill(''),
+        selectedKeys: {},
         currentIndex: 0,
         currentQ: list[0] || null,
         phase: 'exam',
@@ -199,22 +201,45 @@ Page({
     const newAnswers = [...userAnswers];
     newAnswers[currentIndex] = ans;
     const answered = newAnswers.filter(Boolean).length;
-    this.setData({ userAnswers: newAnswers, answeredCount: answered });
+    this.setData({
+      userAnswers: newAnswers,
+      selectedKeys: this._buildSelectedKeys(ans),
+      answeredCount: answered,
+    });
+  },
+
+  _buildSelectedKeys(answer) {
+    const selectedKeys = {};
+    String(answer || '').split('').filter(Boolean).forEach(key => {
+      selectedKeys[key] = true;
+    });
+    return selectedKeys;
+  },
+
+  _showQuestion(index, closeSheet = false) {
+    const currentQ = this._questions[index];
+    if (!currentQ) return;
+    const update = {
+      currentIndex: index,
+      currentQ,
+      selectedKeys: this._buildSelectedKeys(this.data.userAnswers[index]),
+    };
+    if (closeSheet) update.showSheet = false;
+    this.setData(update);
   },
 
   prevQ() {
     const i = this.data.currentIndex - 1;
-    if (i >= 0) this.setData({ currentIndex: i, currentQ: this._questions[i] });
+    if (i >= 0) this._showQuestion(i);
   },
 
   nextQ() {
     const i = this.data.currentIndex + 1;
-    if (i < this._questions.length) this.setData({ currentIndex: i, currentQ: this._questions[i] });
+    if (i < this._questions.length) this._showQuestion(i);
   },
 
   jumpTo(e) {
-    const i = e.currentTarget.dataset.index;
-    this.setData({ currentIndex: i, currentQ: this._questions[i], showSheet: false });
+    this._showQuestion(Number(e.currentTarget.dataset.index), true);
   },
 
   showSheet() { this.setData({ showSheet: true }); },

@@ -62,7 +62,7 @@
     <view class="options">
       <view
         wx:for="{{currentQ.options}}" wx:key="key"
-        class="option {{userAnswers[currentIndex] && userAnswers[currentIndex].includes(item.key) ? 'selected' : ''}}"
+        class="option {{selectedKeys[item.key] ? 'selected' : ''}}"
         bindtap="selectOption"
         data-key="{{item.key}}"
       >

@@ -78,7 +78,7 @@ node miniapp/tests/upload-flow.test.js
 ### 小程序
 
 1. 用微信开发者工具打开 `miniapp/` 目录
-2. 开发者工具中的开发版自动连接 `http://127.0.0.1:8000`；真机调试、体验版和正式版统一连接 `https://api.quizapp.chat`
+2. 开发者工具、真机调试、体验版和正式版统一连接 `https://api.quizapp.chat`，不依赖本机后端
 3. 真机调试前确认生产域名已配置为 request/uploadFile 合法域名，然后编译预览
 
 ## 核心功能
