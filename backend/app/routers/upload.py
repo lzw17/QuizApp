@@ -9,7 +9,7 @@ import os
 import uuid
 import asyncio
 import socket
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 import ipaddress
 import aiofiles
@@ -58,8 +58,10 @@ def _ensure_generation_capacity(
     if daily_count >= settings.MAX_DAILY_GENERATION_TASKS:
         raise HTTPException(429, "今日 AI 生成次数已用完，请明天再试")
     if check_frequency and settings.MIN_GENERATION_INTERVAL_SECONDS:
-        recent_before = utc_now().timestamp() - settings.MIN_GENERATION_INTERVAL_SECONDS
-        recent_at = datetime.fromtimestamp(recent_before, tz=timezone.utc).replace(tzinfo=None)
+        # utc_now() 是去掉 tzinfo 的 UTC 时间，不能对它调 .timestamp()
+        # （naive datetime 会按进程本地时区解释，在东八区服务器上会把窗口多减 8 小时，
+        #   导致"30 秒限流"实际变成"8 小时限流"）。直接做 naive UTC 减法即可。
+        recent_at = utc_now() - timedelta(seconds=settings.MIN_GENERATION_INTERVAL_SECONDS)
         if user_tasks.filter(GenerateTask.created_at >= recent_at).first():
             raise HTTPException(429, "操作过于频繁，请稍后再试")
 
