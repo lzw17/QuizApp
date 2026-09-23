@@ -9,6 +9,8 @@ Page({
     status: 'pending',
     message: '',
     generatedCount: 0,
+    failedChunks: 0,
+    partialSuccess: false,
     error: '',
   },
 
@@ -33,6 +35,8 @@ Page({
           status: data.status,
           message: data.message || '',
           generatedCount: data.generated_count || 0,
+          failedChunks: data.failed_chunks || 0,
+          partialSuccess: Boolean(data.partial_success),
           error: data.error || '',
         });
       },
@@ -41,11 +45,16 @@ Page({
           progress: 100,
           status: 'done',
           generatedCount: data.generated_count || 0,
-          message: '题库生成完成！',
+          failedChunks: data.failed_chunks || 0,
+          partialSuccess: Boolean(data.partial_success),
+          message: data.message || '题库生成完成！',
         });
       },
       (errMsg) => {
         this.setData({ status: 'failed', error: errMsg });
+      },
+      (message) => {
+        this.setData({ status: 'background', message, error: '' });
       },
     );
   },
@@ -62,5 +71,9 @@ Page({
 
   goBack() {
     wx.navigateBack();
+  },
+
+  goHome() {
+    wx.switchTab({ url: '/pages/index/index' });
   },
 });

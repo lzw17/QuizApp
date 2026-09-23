@@ -1,7 +1,9 @@
+import asyncio
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from backend.app.config import Settings
+from backend.app import task_queue
 from backend.app.services import ai_engine
 
 
@@ -21,6 +23,8 @@ class LlmConfigTest(unittest.TestCase):
             "LLM_API_KEY": "sk-valid-production-key",
             "LLM_BASE_URL": "https://models.example.com/v1",
             "LLM_MODEL": "custom-model",
+            "GENERATION_QUEUE_MODE": "arq",
+            "REDIS_URL": "redis://:strong-password@127.0.0.1:6379/0",
         }
         values.update(overrides)
         return Settings(**values)
@@ -66,6 +70,38 @@ class LlmConfigTest(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "must be configured together"):
             config.validate_runtime_security()
+
+    def test_production_requires_durable_generation_queue(self):
+        config = self.production_settings(GENERATION_QUEUE_MODE="in_process")
+
+        with self.assertRaisesRegex(RuntimeError, "must be arq"):
+            config.validate_runtime_security()
+
+    def test_production_requires_authenticated_private_or_tls_redis(self):
+        with self.assertRaisesRegex(RuntimeError, "include a password"):
+            self.production_settings(
+                REDIS_URL="redis://127.0.0.1:6379/0",
+            ).validate_runtime_security()
+        with self.assertRaisesRegex(RuntimeError, "must use rediss"):
+            self.production_settings(
+                REDIS_URL="redis://:password@redis.example.com:6379/0",
+            ).validate_runtime_security()
+
+    def test_arq_enqueue_uses_deterministic_job_id_and_queue(self):
+        pool = AsyncMock()
+        with (
+            patch.object(task_queue.settings, "GENERATION_QUEUE_MODE", "arq"),
+            patch.object(task_queue.settings, "ARQ_QUEUE_NAME", "quizapp:test"),
+            patch.object(task_queue, "_redis_pool", pool),
+        ):
+            asyncio.run(task_queue.enqueue_generation_task("task-123"))
+
+        pool.enqueue_job.assert_awaited_once_with(
+            "run_generation_job",
+            "task-123",
+            _job_id="generation:task-123",
+            _queue_name="quizapp:test",
+        )
 
     def test_production_rejects_placeholder_credentials(self):
         cases = (

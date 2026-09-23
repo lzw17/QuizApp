@@ -130,7 +130,9 @@ class GenerateTaskOut(BaseModel):
     progress: int = 0
     total_chunks: int = 0
     processed_chunks: int = 0
+    failed_chunks: int = 0
     generated_count: int = 0
+    partial_success: bool = False
     message: str = ""
     error: str = ""
 

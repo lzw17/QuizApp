@@ -60,6 +60,43 @@ function loadUploadPage(wx) {
   return page;
 }
 
+function testLongPollingDefersWithoutReportingFailure() {
+  let nowCalls = 0;
+  class FakeDate extends Date {}
+  FakeDate.now = () => (nowCalls++ === 0 ? 0 : 30 * 60 * 1000);
+  const app = {
+    globalData: { accessToken: 'test-token', baseUrl: 'https://api.quizapp.chat' },
+    ensureLogin: async () => ({ id: 1 }),
+  };
+  const module = { exports: {} };
+  const source = fs.readFileSync(path.join(__dirname, '..', 'utils', 'request.js'), 'utf8');
+  vm.runInNewContext(source, {
+    module,
+    exports: module.exports,
+    require,
+    getApp: () => app,
+    wx: {},
+    Promise,
+    Error,
+    Date: FakeDate,
+    setTimeout,
+    clearTimeout,
+    console,
+  });
+
+  const errors = [];
+  const deferred = [];
+  module.exports.pollTask(
+    'task-id',
+    null,
+    null,
+    message => errors.push(message),
+    message => deferred.push(message),
+  );
+  assert.deepEqual(errors, []);
+  assert.deepEqual(deferred, ['任务仍在后台生成，可稍后在题库列表查看']);
+}
+
 async function testUploadPreservesWechatFailureDetails() {
   const fixture = loadRequestModule({
     errMsg: 'uploadFile:fail net::ERR_CONNECTION_RESET',
@@ -146,6 +183,7 @@ async function testExpiredFileIsRejectedBeforeUpload() {
   await testUploadReportsMissingWechatDomain();
   testEmptyFileCannotBeSelected();
   testSmallFileUsesKbInsteadOfZeroMb();
+  testLongPollingDefersWithoutReportingFailure();
   await testExpiredFileIsRejectedBeforeUpload();
   console.log('miniapp upload flow tests passed');
 })().catch(error => {

@@ -25,8 +25,10 @@ from ..models.question import (
     ExamSubmission,
     ExamSession,
     GenerateTask,
+    GenerationBatch,
     Question,
     QuestionBank,
+    BatchStatus,
     TaskStatus,
 )
 from ..models.user import AnswerRecord, User, UserProgress
@@ -191,6 +193,20 @@ def delete_account(
             },
             synchronize_session=False,
         )
+        db.query(GenerationBatch).filter(
+            GenerationBatch.bank_id.in_(owned_bank_ids),
+            GenerationBatch.status.in_([BatchStatus.pending, BatchStatus.running]),
+        ).update(
+            {
+                GenerationBatch.status: BatchStatus.failed,
+                GenerationBatch.error: "account deleted",
+                GenerationBatch.completed_at: utc_now(),
+            },
+            synchronize_session=False,
+        )
+        db.query(GenerationBatch).filter(
+            GenerationBatch.bank_id.in_(owned_bank_ids),
+        ).update({GenerationBatch.source_text: None}, synchronize_session=False)
     current_user.openid = f"deleted_{uuid.uuid4().hex}"
     current_user.nickname = ""
     current_user.avatar = ""

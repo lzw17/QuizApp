@@ -59,3 +59,24 @@ def create_tables():
                 connection.execute(text(
                     "ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
                 ))
+        task_columns = {
+            column["name"] for column in inspect(engine).get_columns("generate_tasks")
+        }
+        task_column_migrations = {
+            "failed_chunks": (
+                "ALTER TABLE generate_tasks ADD COLUMN failed_chunks INTEGER NOT NULL DEFAULT 0"
+            ),
+            "num_direct": (
+                "ALTER TABLE generate_tasks ADD COLUMN num_direct INTEGER NOT NULL DEFAULT 3"
+            ),
+            "num_logic": (
+                "ALTER TABLE generate_tasks ADD COLUMN num_logic INTEGER NOT NULL DEFAULT 2"
+            ),
+            "partial_success": (
+                "ALTER TABLE generate_tasks ADD COLUMN partial_success INTEGER NOT NULL DEFAULT 0"
+            ),
+        }
+        for column_name, statement in task_column_migrations.items():
+            if column_name not in task_columns:
+                with engine.begin() as connection:
+                    connection.execute(text(statement))

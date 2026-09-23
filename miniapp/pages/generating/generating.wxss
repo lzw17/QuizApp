@@ -79,11 +79,12 @@
 @keyframes pulse-dot { 0%,100%{transform:scale(1)} 50%{transform:scale(1.15)} }
 
 /* 完成/失败 */
-.done-area, .fail-area { display: flex; flex-direction: column; align-items: center; gap: 20rpx; }
+.done-area, .fail-area, .background-area { display: flex; flex-direction: column; align-items: center; gap: 20rpx; }
 .done-icon, .fail-icon { font-size: 100rpx; }
 .done-text, .fail-text { font-size: 30rpx; color: #333; text-align: center; }
 .go-btn { min-width: 320rpx; }
 .retry-btn { min-width: 320rpx; }
+.background-text { max-width: 560rpx; font-size: 26rpx; line-height: 1.6; color: #666; text-align: center; }
 .aigc-notice {
   max-width: 560rpx;
   padding: 14rpx 20rpx;

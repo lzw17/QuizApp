@@ -100,7 +100,7 @@
 
 1. `api.quizapp.chat` 完成 DNS A 记录和 HTTPS 证书部署，`/health` 返回 200。
 2. 微信后台配置 request/uploadFile 合法域名、隐私保护指引、备案信息，并用体验版真机验证一键登录、头像、文件选择和上传。
-3. 生产 `.env` 使用真实微信凭证、未泄露的 `LLM_API_KEY`、HTTPS `LLM_BASE_URL`、随机 `SECRET_KEY`、MySQL 连接；执行四份 MySQL migration，完成备份和恢复演练。
+3. 生产 `.env` 使用真实微信凭证、未泄露的 `LLM_API_KEY`、HTTPS `LLM_BASE_URL`、随机 `SECRET_KEY`、MySQL/Redis 连接；执行五份 MySQL migration，并确认 API 与 ARQ Worker 均健康，完成备份和恢复演练。
 4. 当前普通用户只能访问自己创建的题库，不提供公开分享；未来增加公开题库前，必须接入微信 `msgSecCheck` 或等价审核，并提供人工复核与下架流程。
 5. 当前采用宝塔直部署，不依赖 Docker；发布前必须在部署主机执行依赖安装、服务重启、Nginx 配置检查和回滚演练。
 

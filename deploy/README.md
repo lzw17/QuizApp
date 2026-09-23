@@ -13,7 +13,7 @@ WeChat legal domains before release, and replace every `<...>` placeholder.
 
 ## Backend
 
-1. Install Python 3.11, MySQL and Nginx on the server.
+1. Install Python 3.11, MySQL, Redis and Nginx on the server.
 2. Create a MySQL database with `utf8mb4` and a least-privilege application user.
 3. Create `/opt/quizapp/backend/.env` from
    `backend/.env.production.example`. For a systemd deployment, change the
@@ -43,9 +43,15 @@ LLM_MAX_TOKENS=4096
 MAX_ACTIVE_GENERATION_TASKS=2
 MAX_CONCURRENT_GENERATION_TASKS=2
 GENERATION_TIMEOUT_SECONDS=1800
+GENERATION_BATCH_TIMEOUT_SECONDS=180
+GENERATION_BATCH_MAX_RETRIES=2
+MIN_PARTIAL_GENERATED_QUESTIONS=5
 GENERATION_CHUNK_SIZE=1500
 GENERATION_CHUNK_OVERLAP=150
 GENERATION_CHUNK_CONCURRENCY=3
+GENERATION_QUEUE_MODE=arq
+REDIS_URL=redis://:<url-encoded-password>@127.0.0.1:6379/0
+ARQ_QUEUE_NAME=quizapp:generation
 ```
 
 4. Install `requirements-prod.txt` in `/opt/quizapp/backend/.venv`. Back up the database,
@@ -53,10 +59,13 @@ GENERATION_CHUNK_CONCURRENCY=3
    `backend/migrations/001_user_progress_unique_mysql.sql` and
    `backend/migrations/002_user_token_version_mysql.sql`, and
    `backend/migrations/003_user_account_deletion_mysql.sql` and
-   `backend/migrations/004_exam_submissions_mysql.sql` before starting
+   `backend/migrations/004_exam_submissions_mysql.sql` and
+   `backend/migrations/005_generation_batches_mysql.sql` before starting
    the service. `create_all()` creates missing tables but does not alter existing
    production tables.
-5. Install `quizapp.service` as a systemd unit and start it. The unit creates
+5. Install `quizapp.service` and `quizapp-worker.service.example` as systemd
+   units. Start Redis and the worker before the API. The API health endpoint
+   reports degraded until both Redis and the ARQ worker are available. The API unit creates
    `/var/lib/quizapp`; the application creates its `uploads/` and `avatars/`
    subdirectories as the `quizapp` service user.
 6. For the Docker layout (Docker Compose v2.24+), override the Baota-oriented
@@ -79,8 +88,8 @@ docker compose -f deploy/docker-compose.yml up -d
    Renew the certificate before expiry and reload the Nginx container. Do not
    start the normal compose file before both certificate files exist.
 
-The current worker uses FastAPI `BackgroundTasks`, so run one Uvicorn worker until
-AI generation is moved to a durable Redis/Celery/RQ worker. Do not use `run.py`
+AI generation runs in the separate ARQ worker and writes each completed batch
+transactionally. Keep one worker process on the 1 GB host. Do not use `run.py`
 with production reload enabled.
 
 ## WeChat platform

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 import ipaddress
 import aiofiles
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
@@ -24,7 +24,7 @@ from ..models.question import GenerateTask, QuestionBank
 from ..models.user import User
 from ..schemas.question import UploadResponse, GenerateTaskOut
 from ..schemas.question import QuestionBankCreate
-from ..services.question_service import run_generate_task
+from ..task_queue import enqueue_generation_task
 from ..services.doc_parser import validate_document_file
 from ..utils.time import local_day_utc_bounds, utc_now
 from ..config import settings
@@ -74,6 +74,8 @@ def _create_generation_records(
     source_file: str,
     source_type: str,
     message: str,
+    num_direct: int,
+    num_logic: int,
 ) -> QuestionBank:
     """Create the bank and task in one transaction after capacity admission."""
     bank = QuestionBank(
@@ -90,6 +92,8 @@ def _create_generation_records(
     db.add(GenerateTask(
         id=task_id,
         bank_id=bank.id,
+        num_direct=num_direct,
+        num_logic=num_logic,
         message=message,
     ))
     db.commit()
@@ -189,7 +193,6 @@ def _get_source_type(filename: str) -> str:
 
 @router.post("/upload", response_model=UploadResponse)
 async def upload_file(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     bank_name: str = Form("", max_length=200),
     bank_description: str = Form("", max_length=5000),
@@ -246,6 +249,8 @@ async def upload_file(
                 save_path,
                 source_type,
                 "任务已创建，等待处理...",
+                num_direct,
+                num_logic,
             )
     except Exception:
         try:
@@ -254,24 +259,29 @@ async def upload_file(
             pass
         raise
 
-    # 后台异步执行
-    background_tasks.add_task(
-        run_generate_task,
-        task_id=task_id,
-        bank_id=bank.id,
-        file_path=save_path,
-        source_type=source_type,
-        db_factory=SessionLocal,
-        num_direct=num_direct,
-        num_logic=num_logic,
-    )
+    try:
+        await enqueue_generation_task(task_id)
+    except Exception:
+        task = db.get(GenerateTask, task_id)
+        if task:
+            task.status = "failed"
+            task.message = "任务队列暂时不可用，请稍后重试"
+            task.error = "generation queue unavailable"
+        bank.status = "deleted"
+        bank.source_file = ""
+        bank.source_type = ""
+        db.commit()
+        try:
+            os.remove(save_path)
+        except OSError:
+            pass
+        raise HTTPException(503, "任务队列暂时不可用，请稍后重试")
 
     return UploadResponse(task_id=task_id, bank_id=bank.id, message="文件上传成功，正在生成题库...")
 
 
 @router.post("/upload/url", response_model=UploadResponse)
 async def upload_url(
-    background_tasks: BackgroundTasks,
     data: UrlUploadRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -298,18 +308,23 @@ async def upload_url(
             url,
             "url",
             "任务已创建...",
+            data.num_direct,
+            data.num_logic,
         )
 
-    background_tasks.add_task(
-        run_generate_task,
-        task_id=task_id,
-        bank_id=bank.id,
-        file_path=url,
-        source_type="url",
-        db_factory=SessionLocal,
-        num_direct=data.num_direct,
-        num_logic=data.num_logic,
-    )
+    try:
+        await enqueue_generation_task(task_id)
+    except Exception:
+        task = db.get(GenerateTask, task_id)
+        if task:
+            task.status = "failed"
+            task.message = "任务队列暂时不可用，请稍后重试"
+            task.error = "generation queue unavailable"
+        bank.status = "deleted"
+        bank.source_file = ""
+        bank.source_type = ""
+        db.commit()
+        raise HTTPException(503, "任务队列暂时不可用，请稍后重试")
 
     return UploadResponse(task_id=task_id, bank_id=bank.id, message="URL 提交成功，正在生成题库...")
 
@@ -363,7 +378,11 @@ async def task_sse(
             return {
                 "status": task.status,
                 "progress": task.progress,
+                "total_chunks": task.total_chunks,
+                "processed_chunks": task.processed_chunks,
+                "failed_chunks": task.failed_chunks,
                 "generated_count": task.generated_count,
+                "partial_success": task.partial_success,
                 "message": task.message,
                 "error": task.error,
             }
@@ -381,7 +400,11 @@ async def task_sse(
             payload = {
                 "status": snapshot["status"],
                 "progress": snapshot["progress"],
+                "total_chunks": snapshot["total_chunks"],
+                "processed_chunks": snapshot["processed_chunks"],
+                "failed_chunks": snapshot["failed_chunks"],
                 "generated_count": snapshot["generated_count"],
+                "partial_success": snapshot["partial_success"],
                 "message": snapshot["message"],
                 "error": (
                     "生成失败，请更换资料或稍后重试"

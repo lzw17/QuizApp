@@ -1,7 +1,13 @@
+# 通用布局：不用宝塔、纯 systemd，项目放在 /opt/quizapp
+#
+# 若你的服务器用宝塔面板托管 Python 项目（本项目线上即为此布局），
+# 请改用同目录的 quizapp-api.service.example + quizapp-worker.service.example，
+# 它们走 /www/wwwroot/quizapp/backend + www 用户 + 宝塔 pyenv 解释器。
+
 [Unit]
 Description=智题学习笔记 FastAPI backend
-After=network.target mysql.service
-Wants=mysql.service
+After=network.target mysql.service redis.service
+Wants=mysql.service redis.service
 
 [Service]
 Type=simple

@@ -5,14 +5,13 @@ AI 出题引擎
 import json
 import asyncio
 import logging
-from typing import List, Optional, Callable, Awaitable
+from typing import List, Optional
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
 from ..config import settings
 from ..schemas.question import QuestionCreate
-from ..utils.dedup import deduplicate_questions
 
 logger = logging.getLogger(__name__)
 
@@ -198,82 +197,6 @@ async def generate_from_chunk(
             normalized.append(norm)
 
     return normalized
-
-
-async def generate_questions_from_chunks(
-    chunks: List[str],
-    bank_id: int,
-    progress_callback: Optional[Callable[[int, int, int, str], Awaitable[None]]] = None,
-    num_direct: int = 3,
-    num_logic: int = 2,
-    max_questions: Optional[int] = None,
-) -> List[dict]:
-    """
-    对所有分块出题，带进度回调
-
-    段落之间相互独立，全部串行会让文档稍大就超出任务超时，
-    因此这里用有限并发（GENERATION_CHUNK_CONCURRENCY）同时处理多个段落。
-    进度按「已完成段落数」上报，保证前端进度条单调递增。
-    progress_callback(processed, total, generated_count, message)
-    """
-    total = len(chunks)
-    if total == 0:
-        return []
-
-    concurrency = max(1, settings.GENERATION_CHUNK_CONCURRENCY)
-    semaphore = asyncio.Semaphore(concurrency)
-    counter_lock = asyncio.Lock()
-    all_questions: List[dict] = []
-    processed = 0
-    limit_reached = False
-
-    async def process_chunk(index: int, chunk: str) -> None:
-        nonlocal processed, limit_reached
-        if limit_reached:
-            return
-        async with semaphore:
-            if limit_reached:
-                return
-            try:
-                questions = await generate_from_chunk(
-                    chunk=chunk,
-                    bank_id=bank_id,
-                    start_index=index * (num_direct + num_logic),
-                    num_direct=num_direct,
-                    num_logic=num_logic,
-                )
-            except Exception as e:
-                logger.warning("第 %s 块出题失败（%s）", index + 1, type(e).__name__)
-                questions = []
-
-        async with counter_lock:
-            processed += 1
-            if max_questions is not None:
-                remaining = max(0, max_questions - len(all_questions))
-                questions = questions[:remaining]
-            all_questions.extend(questions)
-            if max_questions is not None and len(all_questions) >= max_questions:
-                limit_reached = True
-
-            # 回调放在锁内，保证进度写入严格单调递增，前端进度条不会回跳。
-            if progress_callback:
-                await progress_callback(
-                    processed,
-                    total,
-                    len(all_questions),
-                    f"正在处理第 {processed}/{total} 个段落...",
-                )
-
-    await asyncio.gather(
-        *(process_chunk(index, chunk) for index, chunk in enumerate(chunks))
-    )
-
-    # 全局去重
-    before = len(all_questions)
-    all_questions = deduplicate_questions(all_questions, threshold=0.7)
-    logger.info(f"去重前 {before} 题，去重后 {len(all_questions)} 题")
-
-    return all_questions
 
 
 # ──────────────────────────────────────────

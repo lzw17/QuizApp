@@ -1,4 +1,15 @@
-from sqlalchemy import Column, Integer, String, Text, Float, DateTime, JSON, ForeignKey
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    JSON,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
@@ -23,6 +34,14 @@ class TaskStatus(str, enum.Enum):
     running = "running"
     done = "done"
     failed = "failed"
+
+
+class BatchStatus(str, enum.Enum):
+    pending = "pending"
+    running = "running"
+    done = "done"
+    failed = "failed"
+    skipped = "skipped"
 
 
 class QuestionBank(Base):
@@ -75,11 +94,37 @@ class GenerateTask(Base):
     progress = Column(Integer, default=0, comment="进度 0-100")
     total_chunks = Column(Integer, default=0, comment="总分块数")
     processed_chunks = Column(Integer, default=0, comment="已处理分块数")
+    failed_chunks = Column(Integer, default=0, nullable=False, comment="失败分块数")
     generated_count = Column(Integer, default=0, comment="已生成题目数")
+    num_direct = Column(Integer, default=3, nullable=False, comment="每批直接题数量")
+    num_logic = Column(Integer, default=2, nullable=False, comment="每批推理题数量")
+    partial_success = Column(Boolean, default=False, nullable=False, comment="是否部分成功")
     message = Column(String(500), default="", comment="当前状态描述")
     error = Column(Text, default="", comment="错误信息")
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class GenerationBatch(Base):
+    """A recoverable document chunk and its generation state."""
+    __tablename__ = "generation_batches"
+    __table_args__ = (
+        UniqueConstraint("task_id", "batch_index", name="uq_generation_batches_task_index"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(String(64), ForeignKey("generate_tasks.id"), nullable=False, index=True)
+    bank_id = Column(Integer, ForeignKey("question_banks.id"), nullable=False, index=True)
+    batch_index = Column(Integer, nullable=False)
+    status = Column(String(20), default=BatchStatus.pending, nullable=False, index=True)
+    source_text = Column(Text, nullable=True)
+    generated_count = Column(Integer, default=0, nullable=False)
+    attempt_count = Column(Integer, default=0, nullable=False)
+    error = Column(Text, default="", nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
 
 
 class ExamSession(Base):

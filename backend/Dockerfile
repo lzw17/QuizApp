@@ -10,5 +10,5 @@ COPY . .
 
 EXPOSE 8000
 
-# 出题任务使用 FastAPI BackgroundTasks，必须保持单 worker；后续迁移持久队列后再扩容。
+# API 只负责入队；AI 任务由独立 ARQ Worker 执行。
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers", "--forwarded-allow-ips", "*"]

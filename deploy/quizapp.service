@@ -1,5 +1,9 @@
 # 不用 Docker 的部署方式：systemd 守护 uvicorn
 #
+# ⚠️ 本文件是「不用宝塔、项目在 /opt/quizapp」的通用布局。
+#    宝塔面板托管的项目（本项目线上布局）请用 quizapp-api.service.example +
+#    quizapp-worker.service.example，路径/用户/解释器都不一样，不能混用。
+#
 # 使用步骤（服务器上执行）：
 #   1. 假设项目放在 /opt/quizapp
 #      cd /opt/quizapp/backend
@@ -18,8 +22,8 @@
 
 [Unit]
 Description=智题学习笔记 FastAPI backend
-After=network.target mysql.service
-Wants=mysql.service
+After=network.target mysql.service redis.service
+Wants=mysql.service redis.service
 
 [Service]
 Type=simple

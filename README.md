@@ -125,9 +125,15 @@ node miniapp/tests/upload-flow.test.js
 | `MAX_PDF_PAGES` | 单个 PDF 最大页数 | 300 |
 | `MAX_EXTRACTED_TEXT_CHARS` | 单份资料最大提取字符数 | 1000000 |
 | `GENERATION_TIMEOUT_SECONDS` | 单个 AI 出题任务总超时（秒） | 1800 |
+| `GENERATION_BATCH_TIMEOUT_SECONDS` | 单个文本批次超时（秒） | 180 |
+| `GENERATION_BATCH_MAX_RETRIES` | 单批失败后的重试次数 | 2 |
+| `MIN_PARTIAL_GENERATED_QUESTIONS` | 部分成功时允许发布的最低题数 | 5 |
 | `GENERATION_CHUNK_SIZE` | 文本分块大小（字符），越小 LLM 调用次数越多 | 1500 |
 | `GENERATION_CHUNK_OVERLAP` | 相邻分块重叠字符数 | 150 |
 | `GENERATION_CHUNK_CONCURRENCY` | 单个任务内并行处理的段落数 | 3 |
+| `GENERATION_QUEUE_MODE` | 出题队列；开发用 in_process，生产强制 arq | in_process |
+| `REDIS_URL` | ARQ 使用的 Redis 连接 | 本机 6379/0 |
+| `ARQ_QUEUE_NAME` | ARQ 队列名 | quizapp:generation |
 
 自定义模型配置、HTTPS 要求和宝塔重启步骤见
 [`docs/custom-llm.md`](docs/custom-llm.md)。
@@ -158,5 +164,6 @@ node miniapp/tests/upload-flow.test.js
 
 - 后端只监听 `127.0.0.1:8000`，公网仅开放 HTTPS 443（以及证书续签所需的 80）。
 - 生产配置从 `backend/.env.production.example` 创建，禁止把本地 `.env` 上传或提交。
-- 源文档保存在服务器 `uploads/`，Nginx 不直接暴露该目录；仅头像目录由应用按需提供。
+- API 与 ARQ Worker 是两个独立进程；Worker 命令为 `arq app.worker.WorkerSettings`。
+- 文档解析后立即拆成可恢复批次并删除上传源文件；批次完成后清空批次原文，Nginx 仅暴露头像目录。
 - 微信后台的 request 与 uploadFile 合法域名都配置为 `https://api.quizapp.chat`。

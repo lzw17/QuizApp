@@ -145,11 +145,12 @@ function _uploadFile(filePath, formData, options, retried) {
 }
 
 /** SSE 进度轮询（小程序不支持原生 SSE，改用定时轮询）*/
-function pollTask(taskId, onProgress, onDone, onError) {
+function pollTask(taskId, onProgress, onDone, onError, onDeferred) {
   let timer = null;
   let stopped = false;
   const startedAt = Date.now();
-  // 后端单次出题最长 30 分钟，前端等待上限要覆盖它，否则任务还在跑就先报超时。
+  // 排队时间不计入 Worker 的执行超时。页面等待到上限后只停止前台轮询，
+  // 持久化任务仍会在服务器继续执行。
   const maxWaitMs = 30 * 60 * 1000;
   let delay = 1500;
 
@@ -157,7 +158,7 @@ function pollTask(taskId, onProgress, onDone, onError) {
     if (stopped) return;
     if (Date.now() - startedAt >= maxWaitMs) {
       stopped = true;
-      onError && onError('任务等待超时，请稍后在题库列表查看');
+      onDeferred && onDeferred('任务仍在后台生成，可稍后在题库列表查看');
       return;
     }
     request({ url: `/api/task/${taskId}`, silent: true }).then(data => {

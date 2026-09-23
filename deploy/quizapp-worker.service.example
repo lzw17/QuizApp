@@ -1,0 +1,37 @@
+# 生产实际布局：宝塔面板托管的 Python 项目（本项目线上即为此布局）
+#
+#   cp quizapp-worker.service.example /etc/systemd/system/quizapp-worker.service
+#   systemctl daemon-reload && systemctl enable --now quizapp-worker
+#   journalctl -u quizapp-worker -f
+#
+# 注意：
+#   - 路径与用户必须与宝塔项目一致，不能照抄通用 /opt/quizapp 布局
+#     （见 quizapp.service.example，那份是「不用宝塔、纯 systemd」的场景）
+#   - 必须用项目自己的 Python 解释器（宝塔 pyenv 环境），它才装过 arq/redis；
+#     用系统 python3 会 ModuleNotFoundError: No module named 'arq'
+#   - 配置靠 WorkingDirectory + .env 相对路径读取，所以 WorkingDirectory 必填；
+#     这里不用 EnvironmentFile，避免与 config.py 自己的 dotenv 加载语义打架
+#   - User=www 与宝塔项目一致，否则 uploads/ 与 .env 的属主不匹配会读写失败
+
+[Unit]
+Description=QuizApp ARQ generation worker (durable AI question generation)
+After=network.target redis.service
+Wants=redis.service
+# 内网 LLM 网关要走公司 VPN，因此等 VPN 起来
+After=company-vpn.service
+Wants=company-vpn.service
+
+[Service]
+Type=simple
+User=www
+Group=www
+WorkingDirectory=/www/wwwroot/quizapp/backend
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/www/server/pyporject_evn/versions/3.11.16/bin/python3.11 -m arq app.worker.WorkerSettings
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

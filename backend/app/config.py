@@ -67,11 +67,19 @@ class Settings(BaseSettings):
     MAX_DAILY_GENERATION_TASKS: int = 10
     MIN_GENERATION_INTERVAL_SECONDS: int = 30
     GENERATION_TIMEOUT_SECONDS: int = 1800
+    GENERATION_BATCH_TIMEOUT_SECONDS: int = 180
+    GENERATION_BATCH_MAX_RETRIES: int = 2
+    MIN_PARTIAL_GENERATED_QUESTIONS: int = 5
     # 文本分块：块过小会让 LLM 调用次数成倍增加，出题极慢
     GENERATION_CHUNK_SIZE: int = 1500
     GENERATION_CHUNK_OVERLAP: int = 150
     # 单个任务内并行处理的段落数（网络等待为主，不影响小内存机器）
     GENERATION_CHUNK_CONCURRENCY: int = 3
+
+    # 持久化任务队列。本地开发可用 in_process，生产必须使用 arq。
+    GENERATION_QUEUE_MODE: str = "in_process"
+    REDIS_URL: str = "redis://127.0.0.1:6379/0"
+    ARQ_QUEUE_NAME: str = "quizapp:generation"
 
     # CORS
     ALLOWED_ORIGINS: str = "*"
@@ -187,12 +195,30 @@ class Settings(BaseSettings):
             raise RuntimeError("Generation rate limits are invalid")
         if self.GENERATION_TIMEOUT_SECONDS <= 0:
             raise RuntimeError("GENERATION_TIMEOUT_SECONDS must be positive")
+        if self.GENERATION_BATCH_TIMEOUT_SECONDS <= 0:
+            raise RuntimeError("GENERATION_BATCH_TIMEOUT_SECONDS must be positive")
+        if self.GENERATION_BATCH_MAX_RETRIES < 0:
+            raise RuntimeError("GENERATION_BATCH_MAX_RETRIES must not be negative")
+        if self.MIN_PARTIAL_GENERATED_QUESTIONS <= 0:
+            raise RuntimeError("MIN_PARTIAL_GENERATED_QUESTIONS must be positive")
         if self.GENERATION_CHUNK_SIZE <= 0 or self.GENERATION_CHUNK_OVERLAP < 0:
             raise RuntimeError("Generation chunk settings must be positive")
         if self.GENERATION_CHUNK_OVERLAP >= self.GENERATION_CHUNK_SIZE:
             raise RuntimeError("GENERATION_CHUNK_OVERLAP must be smaller than GENERATION_CHUNK_SIZE")
         if self.GENERATION_CHUNK_CONCURRENCY <= 0:
             raise RuntimeError("GENERATION_CHUNK_CONCURRENCY must be positive")
+        queue_mode = self.GENERATION_QUEUE_MODE.strip().lower()
+        if queue_mode not in ("in_process", "arq"):
+            raise RuntimeError("GENERATION_QUEUE_MODE must be in_process or arq")
+        if not self.ARQ_QUEUE_NAME.strip():
+            raise RuntimeError("ARQ_QUEUE_NAME must not be empty")
+        redis_url = urlparse(self.REDIS_URL)
+        if queue_mode == "arq" and (
+            redis_url.scheme not in ("redis", "rediss")
+            or not redis_url.hostname
+            or self._is_placeholder(self.REDIS_URL)
+        ):
+            raise RuntimeError("REDIS_URL must be a valid Redis URL when ARQ is enabled")
         if (
             self.LLM_TIMEOUT_SECONDS <= 0
             or self.LLM_MAX_RETRIES < 0
@@ -226,6 +252,12 @@ class Settings(BaseSettings):
             raise RuntimeError("APP_TIMEZONE must be a valid IANA timezone") from exc
         if self.APP_ENV.lower() not in ("prod", "production"):
             return
+        if queue_mode != "arq":
+            raise RuntimeError("GENERATION_QUEUE_MODE must be arq in production")
+        if not redis_url.password:
+            raise RuntimeError("REDIS_URL must include a password in production")
+        if redis_url.scheme != "rediss" and not self._is_internal_host(redis_url.hostname or ""):
+            raise RuntimeError("Remote Redis must use rediss TLS in production")
         if self.WX_MOCK_LOGIN:
             raise RuntimeError("WX_MOCK_LOGIN must be disabled in production")
         if self._is_placeholder(self.WX_APPID) or self._is_placeholder(self.WX_SECRET):

@@ -28,7 +28,13 @@ from fastapi import HTTPException
 from backend.app.database import SessionLocal, _engine_options, engine
 from backend.app.config import settings
 from backend.app.main import app
-from backend.app.models.question import ExamSubmission, GenerateTask, Question, QuestionBank
+from backend.app.models.question import (
+    ExamSubmission,
+    GenerateTask,
+    GenerationBatch,
+    Question,
+    QuestionBank,
+)
 from backend.app.models.user import AnswerRecord, User, UserProgress
 from backend.app.routers.auth import _get_wechat_session
 from backend.app.routers.upload import _build_bank_data, _ensure_generation_capacity
@@ -106,6 +112,13 @@ class AuthFlowTest(unittest.TestCase):
                 status="running",
                 message="generating",
             ))
+            db.add(GenerationBatch(
+                task_id=task_id,
+                bank_id=bank_id,
+                batch_index=0,
+                status="running",
+                source_text="private source text",
+            ))
             db.add(UserProgress(
                 user_id=session["user"]["id"],
                 bank_id=bank_id,
@@ -156,6 +169,9 @@ class AuthFlowTest(unittest.TestCase):
             task = db.query(GenerateTask).filter(GenerateTask.bank_id == bank_id).one()
             self.assertEqual(task.status, "failed")
             self.assertEqual(task.message, "题库已删除，生成已停止")
+            batch = db.query(GenerationBatch).filter(GenerationBatch.task_id == task.id).one()
+            self.assertEqual(batch.status, "failed")
+            self.assertIsNone(batch.source_text)
         finally:
             db.close()
 
@@ -577,6 +593,19 @@ class AuthFlowTest(unittest.TestCase):
             bank = db.get(QuestionBank, bank_id)
             bank.source_file = source_path
             bank.source_type = "pdf"
+            task_id = uuid.uuid4().hex
+            db.add(GenerateTask(
+                id=task_id,
+                bank_id=bank_id,
+                status="running",
+            ))
+            db.add(GenerationBatch(
+                task_id=task_id,
+                bank_id=bank_id,
+                batch_index=0,
+                status="running",
+                source_text="private account source",
+            ))
             db.add(UserProgress(
                 user_id=session["user"]["id"],
                 bank_id=bank_id,
@@ -617,6 +646,11 @@ class AuthFlowTest(unittest.TestCase):
             self.assertEqual(deleted_question.status, "deleted")
             self.assertEqual(deleted_question.content, "")
             self.assertEqual(deleted_question.options, [])
+            deleted_batch = db.query(GenerationBatch).filter(
+                GenerationBatch.task_id == task_id,
+            ).one()
+            self.assertEqual(deleted_batch.status, "failed")
+            self.assertIsNone(deleted_batch.source_text)
             self.assertEqual(deleted_question.answer, "")
             self.assertEqual(deleted_question.explanation, "")
             self.assertEqual(deleted_question.tags, [])
@@ -763,7 +797,7 @@ class AuthFlowTest(unittest.TestCase):
             task_id = task.id
             bank_id = bank.id
             recovered = recover_interrupted_tasks(db)
-            self.assertGreaterEqual(recovered, 1)
+            self.assertEqual(recovered, [])
             self.assertEqual(db.get(GenerateTask, task_id).status, "failed")
             self.assertEqual(db.get(QuestionBank, bank_id).status, "deleted")
         finally:
@@ -1254,7 +1288,7 @@ class AuthFlowTest(unittest.TestCase):
             db.add(stale)
             db.commit()
             self.assertEqual(get_user_stats(db, user.id)["streak_days"], 2)
-            self.assertEqual(recover_interrupted_tasks(db), 1)
+            self.assertEqual(recover_interrupted_tasks(db), [])
             db.refresh(stale)
             self.assertEqual(stale.status, "failed")
         finally:
@@ -1290,12 +1324,16 @@ class AuthFlowTest(unittest.TestCase):
 
         with (
             patch(
-                "backend.app.services.question_service.parse_document",
+                "backend.app.services.generation_service.parse_document",
                 new=parsed_document,
             ),
             patch(
-                "backend.app.services.question_service.generate_questions_from_chunks",
+                "backend.app.services.generation_service.generate_from_chunk",
                 new=AsyncMock(return_value=[]),
+            ),
+            patch(
+                "backend.app.services.generation_service.settings.GENERATION_BATCH_MAX_RETRIES",
+                0,
             ),
         ):
             asyncio.run(
@@ -1403,19 +1441,19 @@ class AuthFlowTest(unittest.TestCase):
 
         with (
             patch(
-                "backend.app.services.question_service.parse_document",
+                "backend.app.services.generation_service.parse_document",
                 new=parsed_document,
             ),
             patch(
-                "backend.app.services.question_service.split_text_into_chunks",
+                "backend.app.services.generation_service.split_text_into_chunks",
                 return_value=["source text"],
             ),
             patch(
-                "backend.app.services.question_service.generate_questions_from_chunks",
-                new=generated_questions,
+                "backend.app.services.generation_service.generate_from_chunk",
+                new=AsyncMock(return_value=generated),
             ),
             patch(
-                "backend.app.services.question_service.classify_questions_tags",
+                "backend.app.services.generation_service.classify_questions_tags",
                 new=AsyncMock(side_effect=lambda questions: questions),
             ),
         ):
@@ -1441,6 +1479,12 @@ class AuthFlowTest(unittest.TestCase):
                 db.query(Question).filter(Question.bank_id == bank_id).count(),
                 1,
             )
+            batch = db.query(GenerationBatch).filter(
+                GenerationBatch.task_id == task_id,
+            ).one()
+            self.assertEqual(batch.status, "done")
+            self.assertEqual(batch.generated_count, 1)
+            self.assertIsNone(batch.source_text)
             bank.status = "deleted"
             db.commit()
         finally:
@@ -1469,11 +1513,11 @@ class AuthFlowTest(unittest.TestCase):
 
         with (
             patch(
-                "backend.app.services.question_service.parse_document",
+                "backend.app.services.generation_service.parse_document",
                 new=slow_document,
             ),
             patch(
-                "backend.app.services.question_service.settings.GENERATION_TIMEOUT_SECONDS",
+                "backend.app.services.generation_service.settings.GENERATION_TIMEOUT_SECONDS",
                 0.01,
             ),
         ):
@@ -1493,8 +1537,334 @@ class AuthFlowTest(unittest.TestCase):
             bank = db.get(QuestionBank, bank_id)
             self.assertEqual(task.status, "failed")
             self.assertEqual(task.error, "生成失败，请更换资料或稍后重试")
-            self.assertEqual(task.message, "出题超时，请缩小资料后重试")
+            self.assertEqual(task.message, "出题达到时间上限")
             self.assertEqual(bank.status, "deleted")
+        finally:
+            db.close()
+
+    def test_generation_batch_unique_constraint_is_declared(self):
+        constraints = GenerationBatch.__table__.constraints
+        self.assertIn(
+            "uq_generation_batches_task_index",
+            {constraint.name for constraint in constraints},
+        )
+
+    def test_running_generation_batch_is_recovered_for_requeue(self):
+        db = SessionLocal()
+        try:
+            bank = QuestionBank(
+                name=f"recoverable-{uuid.uuid4().hex[:8]}",
+                status="pending",
+                source_file="https://example.com/source",
+                source_type="url",
+                created_by="recover-owner",
+            )
+            db.add(bank)
+            db.flush()
+            task_id = uuid.uuid4().hex
+            db.add(GenerateTask(
+                id=task_id,
+                bank_id=bank.id,
+                status="running",
+                total_chunks=1,
+            ))
+            db.add(GenerationBatch(
+                task_id=task_id,
+                bank_id=bank.id,
+                batch_index=0,
+                status="running",
+                source_text="recoverable text",
+            ))
+            db.commit()
+
+            self.assertEqual(recover_interrupted_tasks(db), [task_id])
+            task = db.get(GenerateTask, task_id)
+            batch = db.query(GenerationBatch).filter(
+                GenerationBatch.task_id == task_id,
+            ).one()
+            self.assertEqual(task.status, "running")
+            self.assertEqual(batch.status, "running")
+            self.assertEqual(batch.source_text, "recoverable text")
+
+            task.status = "failed"
+            bank.status = "deleted"
+            batch.status = "failed"
+            batch.source_text = None
+            db.commit()
+        finally:
+            db.close()
+
+    def test_generation_partial_success_keeps_incremental_questions(self):
+        db = SessionLocal()
+        try:
+            bank = QuestionBank(
+                name=f"partial-{uuid.uuid4().hex[:8]}",
+                status="pending",
+                source_file="https://example.com/source",
+                source_type="url",
+                created_by="partial-owner",
+            )
+            db.add(bank)
+            db.flush()
+            bank_id = bank.id
+            task_id = uuid.uuid4().hex
+            db.add(GenerateTask(id=task_id, bank_id=bank_id, status="pending"))
+            db.commit()
+        finally:
+            db.close()
+
+        generated = [{
+            "type": "single",
+            "content": "incrementally persisted question",
+            "options": [{"key": "A", "text": "answer"}],
+            "answer": "A",
+            "explanation": "explanation",
+            "tags": ["tag"],
+            "difficulty": 2,
+        }]
+
+        async def parsed_document(*args, **kwargs):
+            return "source text"
+
+        async def generate_by_chunk(chunk, **kwargs):
+            return generated if chunk == "good chunk" else []
+
+        with (
+            patch(
+                "backend.app.services.generation_service.parse_document",
+                new=parsed_document,
+            ),
+            patch(
+                "backend.app.services.generation_service.split_text_into_chunks",
+                return_value=["good chunk", "bad chunk"],
+            ),
+            patch(
+                "backend.app.services.generation_service.generate_from_chunk",
+                new=generate_by_chunk,
+            ),
+            patch(
+                "backend.app.services.generation_service.classify_questions_tags",
+                new=AsyncMock(side_effect=lambda questions: questions),
+            ),
+            patch(
+                "backend.app.services.generation_service.settings.GENERATION_BATCH_MAX_RETRIES",
+                0,
+            ),
+            patch(
+                "backend.app.services.generation_service.settings.GENERATION_CHUNK_CONCURRENCY",
+                1,
+            ),
+            patch(
+                "backend.app.services.generation_service.settings.MIN_PARTIAL_GENERATED_QUESTIONS",
+                1,
+            ),
+        ):
+            asyncio.run(run_generate_task(task_id=task_id, db_factory=SessionLocal))
+
+        db = SessionLocal()
+        try:
+            task = db.get(GenerateTask, task_id)
+            bank = db.get(QuestionBank, bank_id)
+            batches = db.query(GenerationBatch).filter(
+                GenerationBatch.task_id == task_id,
+            ).order_by(GenerationBatch.batch_index).all()
+            self.assertEqual(task.status, "done")
+            self.assertTrue(task.partial_success)
+            self.assertEqual(task.failed_chunks, 1)
+            self.assertEqual(task.generated_count, 1)
+            self.assertEqual(bank.status, "ready")
+            self.assertEqual([batch.status for batch in batches], ["done", "failed"])
+            self.assertTrue(all(batch.source_text is None for batch in batches))
+            bank.status = "deleted"
+            db.commit()
+        finally:
+            db.close()
+
+    def test_completed_generation_is_idempotent_on_redelivery(self):
+        db = SessionLocal()
+        try:
+            bank = QuestionBank(
+                name=f"redelivery-{uuid.uuid4().hex[:8]}",
+                status="ready",
+                total_count=1,
+                created_by="redelivery-owner",
+            )
+            db.add(bank)
+            db.flush()
+            task_id = uuid.uuid4().hex
+            db.add(GenerateTask(
+                id=task_id,
+                bank_id=bank.id,
+                status="done",
+                total_chunks=1,
+                processed_chunks=1,
+                generated_count=1,
+            ))
+            db.add(GenerationBatch(
+                task_id=task_id,
+                bank_id=bank.id,
+                batch_index=0,
+                status="done",
+                source_text=None,
+                generated_count=1,
+            ))
+            db.commit()
+            bank_id = bank.id
+        finally:
+            db.close()
+
+        generate = AsyncMock(return_value=[])
+        with patch(
+            "backend.app.services.generation_service.generate_from_chunk",
+            new=generate,
+        ):
+            asyncio.run(run_generate_task(task_id=task_id, db_factory=SessionLocal))
+        generate.assert_not_awaited()
+
+        db = SessionLocal()
+        try:
+            self.assertEqual(db.get(GenerateTask, task_id).status, "done")
+            db.get(QuestionBank, bank_id).status = "deleted"
+            db.commit()
+        finally:
+            db.close()
+
+    def test_partial_result_below_threshold_is_hidden(self):
+        from backend.app.services.generation_service import _finalize_generation
+
+        db = SessionLocal()
+        try:
+            bank = QuestionBank(
+                name=f"below-threshold-{uuid.uuid4().hex[:8]}",
+                status="pending",
+                created_by="threshold-owner",
+            )
+            db.add(bank)
+            db.flush()
+            bank_id = bank.id
+            task_id = uuid.uuid4().hex
+            db.add(GenerateTask(
+                id=task_id,
+                bank_id=bank_id,
+                status="running",
+                total_chunks=2,
+            ))
+            db.add_all([
+                GenerationBatch(
+                    task_id=task_id,
+                    bank_id=bank_id,
+                    batch_index=0,
+                    status="done",
+                    generated_count=1,
+                ),
+                GenerationBatch(
+                    task_id=task_id,
+                    bank_id=bank_id,
+                    batch_index=1,
+                    status="failed",
+                    generated_count=0,
+                ),
+                Question(
+                    bank_id=bank_id,
+                    type="single",
+                    content="insufficient partial question",
+                    options=[{"key": "A", "text": "answer"}],
+                    answer="A",
+                ),
+            ])
+            db.commit()
+        finally:
+            db.close()
+
+        with patch(
+            "backend.app.services.generation_service.settings.MIN_PARTIAL_GENERATED_QUESTIONS",
+            2,
+        ):
+            _finalize_generation(SessionLocal, task_id, bank_id)
+
+        db = SessionLocal()
+        try:
+            task = db.get(GenerateTask, task_id)
+            question = db.query(Question).filter(Question.bank_id == bank_id).one()
+            self.assertEqual(task.status, "failed")
+            self.assertFalse(task.partial_success)
+            self.assertEqual(db.get(QuestionBank, bank_id).status, "deleted")
+            self.assertEqual(question.status, "deleted")
+        finally:
+            db.close()
+
+    def test_batch_and_questions_rollback_together(self):
+        from backend.app.services.generation_service import _persist_batch_questions
+
+        db = SessionLocal()
+        try:
+            bank = QuestionBank(
+                name=f"atomic-{uuid.uuid4().hex[:8]}",
+                status="pending",
+                created_by="atomic-owner",
+            )
+            db.add(bank)
+            db.flush()
+            bank_id = bank.id
+            task_id = uuid.uuid4().hex
+            db.add(GenerateTask(
+                id=task_id,
+                bank_id=bank_id,
+                status="running",
+                total_chunks=1,
+            ))
+            db.add(GenerationBatch(
+                task_id=task_id,
+                bank_id=bank_id,
+                batch_index=0,
+                status="running",
+                source_text="atomic source",
+            ))
+            db.commit()
+            batch_id = db.query(GenerationBatch.id).filter(
+                GenerationBatch.task_id == task_id,
+            ).scalar()
+        finally:
+            db.close()
+
+        question = [{
+            "type": "single",
+            "content": "must roll back",
+            "options": [{"key": "A", "text": "answer"}],
+            "answer": "A",
+            "explanation": "",
+            "tags": [],
+            "difficulty": 1,
+        }]
+        with (
+            patch(
+                "backend.app.services.generation_service._update_task_aggregate",
+                side_effect=RuntimeError("forced rollback"),
+            ),
+            self.assertRaises(RuntimeError),
+        ):
+            _persist_batch_questions(
+                SessionLocal,
+                task_id,
+                bank_id,
+                batch_id,
+                question,
+            )
+
+        db = SessionLocal()
+        try:
+            batch = db.get(GenerationBatch, batch_id)
+            self.assertEqual(batch.status, "running")
+            self.assertEqual(batch.source_text, "atomic source")
+            self.assertEqual(
+                db.query(Question).filter(Question.bank_id == bank_id).count(),
+                0,
+            )
+            batch.status = "failed"
+            batch.source_text = None
+            db.get(GenerateTask, task_id).status = "failed"
+            db.get(QuestionBank, bank_id).status = "deleted"
+            db.commit()
         finally:
             db.close()
 

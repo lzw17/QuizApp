@@ -45,3 +45,7 @@ backend/uploads/
 # Local server sync helper contains machine-specific credentials and paths.
 /scripts/ssh_sync.py
 /scripts/deploy-update.ps1
+
+# 一次性远程部署脚本（下划线前缀）：可能内联 SSH / Redis 凭据，一律不入库。
+# 需要长期保留的工具请用不带下划线的名字，并从 ssh_sync.py 读取凭据。
+/scripts/_*

@@ -18,11 +18,20 @@ from sqlalchemy import func as sa_func
 
 from ..auth import get_current_user, require_admin
 from ..database import get_db
-from ..models.question import GenerateTask, QuestionBank, Question, BankStatus, TaskStatus
+from ..models.question import (
+    BankStatus,
+    BatchStatus,
+    GenerateTask,
+    GenerationBatch,
+    Question,
+    QuestionBank,
+    TaskStatus,
+)
 from ..models.user import User
 from ..schemas.question import QuestionBankListItem, QuestionBankOut, QuestionOut, QuestionPublicOut, QuestionCreate
 from ..services.bank_access import apply_bank_access, get_accessible_bank
 from ..services.question_service import get_current_wrong_question_ids, get_starred_question_ids
+from ..utils.time import utc_now
 
 router = APIRouter(prefix="/api", tags=["questions"])
 
@@ -155,6 +164,21 @@ def delete_bank(
         task.status = TaskStatus.failed
         task.message = "题库已删除，生成已停止"
         task.error = "bank deleted"
+
+    db.query(GenerationBatch).filter(
+        GenerationBatch.bank_id == bank_id,
+        GenerationBatch.status.in_([BatchStatus.pending, BatchStatus.running]),
+    ).update(
+        {
+            GenerationBatch.status: BatchStatus.failed,
+            GenerationBatch.error: "bank deleted",
+            GenerationBatch.completed_at: utc_now(),
+        },
+        synchronize_session=False,
+    )
+    db.query(GenerationBatch).filter(
+        GenerationBatch.bank_id == bank_id,
+    ).update({GenerationBatch.source_text: None}, synchronize_session=False)
 
     bank.status = BankStatus.deleted
     db.commit()

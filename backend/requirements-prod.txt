@@ -1,10 +1,9 @@
 # 生产环境精简依赖（1G 内存服务器专用）
 #
-# 与 requirements.txt 的差异：移除了以下 4 个代码中未被引用的包，节省约 100MB 磁盘
+# 与 requirements.txt 的差异：移除了以下 3 个代码中未被引用的包，节省约 100MB 磁盘
 # 与大量编译时间（faiss-cpu / numpy 在 1G 内存机器上极易 OOM）：
 #   faiss-cpu  —— 全项目无 import（向量检索功能未启用，去重走 utils/dedup.py 自实现）
 #   numpy      —— 仅被 faiss 间接需要
-#   redis      —— 全项目无 import（未使用缓存/队列）
 #   sse-starlette —— 全项目无 import（SSE 自行实现，走 StreamingResponse）
 #
 # 安装：pip install -r requirements-prod.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
@@ -21,6 +20,8 @@ pydantic==2.9.2
 pydantic-settings==2.5.2
 httpx==0.27.2
 aiofiles==24.1.0
+arq==0.26.1
+redis==5.0.8
 langchain==0.3.7
 langchain-openai==0.2.8
 langchain-text-splitters==0.3.2

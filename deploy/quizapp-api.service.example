@@ -1,0 +1,38 @@
+# 生产实际布局：宝塔面板托管的 Python 项目（本项目线上即为此布局）
+#
+# 为什么 API 也交给 systemd 而不是宝塔「重启项目」按钮：
+#   宝塔的 RestartProject 动作实测不稳定——日志打印"重启项目 quizapp-backend 成功！"
+#   但 uvicorn 进程消失、8000 不再监听、站点直接 502（前台手工跑同一条命令却完全正常）。
+#   API 改由 systemd 托管后，连续 restart 均健康，且与 worker 互不影响。
+#
+#   cp quizapp-api.service.example /etc/systemd/system/quizapp-api.service
+#   systemctl daemon-reload && systemctl enable --now quizapp-api
+#
+# ⚠️ 宝塔面板「停止」会按 pid 文件杀进程，而 pid 文件默认可能写着 worker 的 PID，
+#    导致点「停止」把出题 worker 一起杀掉。安装后必须把 pid 文件指向本服务的 MainPID：
+#      APIPID=$(systemctl show quizapp-api -p MainPID --value)
+#      echo -n "$APIPID" > /www/server/python_project/vhost/pids/quizapp-backend.pid
+#    deploy/restart.sh 已自动做这件事，优先用它重启。
+
+[Unit]
+Description=QuizApp FastAPI backend (quizapp-backend)
+After=network.target mysql.service redis.service
+Wants=mysql.service redis.service
+# 内网 LLM 网关走公司 VPN
+After=company-vpn.service
+Wants=company-vpn.service
+
+[Service]
+Type=simple
+User=www
+Group=www
+WorkingDirectory=/www/wwwroot/quizapp/backend
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/www/server/pyporject_evn/versions/3.11.16/bin/python3.11 -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

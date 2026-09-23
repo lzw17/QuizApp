@@ -50,13 +50,14 @@
     sudo mkswap /swapfile && sudo swapon /swapfile
     echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
     ```
-  - 依赖安装用精简清单（剔除未使用的 faiss/numpy/redis 等重包，防止编译 OOM）
+  - 依赖安装用精简清单（剔除未使用的 faiss/numpy 等重包；保留轻量的 Redis/ARQ 客户端）
 - 系统自带 Python（如 3.6）**绝对不能动**（宝塔面板跑在上面），项目用 Python 在「python环境管理器」里单独装 3.11
 
 ## 四、宝塔面板配置清单
 
 ### 4.1 软件安装
-- 软件商店装：**Nginx**（极速安装）+ **MySQL 5.7** + **python环境管理器**（新版宝塔老"Python项目管理器"仅支持 CentOS 7）
+- 软件商店装：**Nginx**（极速安装）+ **MySQL 5.7** + **Redis** + **python环境管理器**（新版宝塔老"Python项目管理器"仅支持 CentOS 7）
+- Redis 仅监听 `127.0.0.1`，设置强密码、`maxmemory 128mb` 和 `noeviction`，不要放行 6379
 - Python 3.11 在管理器内源码编译安装（2核1G 约 5~20 分钟），自定义参数留空
 - 初始化推荐配置弹窗**不要一键安装 LNMP/Docker**，手动逐个装
 
@@ -88,6 +89,9 @@ LLM_BASE_URL=https://服务商域名/v1              # 填 API 根地址，生�
 LLM_MODEL=...                                   # 与服务商模型 ID 完全一致
 UPLOAD_DIR=<宝塔路径>/uploads                    # 目录需手动创建并 chown www:www
 ALLOWED_ORIGINS=https://api.xxx.com             # 逗号分隔字符串
+GENERATION_QUEUE_MODE=arq
+REDIS_URL=redis://:URL编码后的密码@127.0.0.1:6379/0
+ARQ_QUEUE_NAME=quizapp:generation
 ```
 - **.env 里不要写行内注释**（`KEY=value # 注释` 的解析器兼容性风险，全部删掉）
 - 生产 .env 归属改为 `www:www`（程序以 www 用户运行）
@@ -96,8 +100,9 @@ ALLOWED_ORIGINS=https://api.xxx.com             # 逗号分隔字符串
 ### 5.3 添加 Python 项目（宝塔 网站 → Python项目）
 - 项目路径 `/www/wwwroot/<项目名>/backend`
 - 启动命令：`uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1`
+- 另建一个常驻 Worker：`python -m arq app.worker.WorkerSettings`，使用相同目录、虚拟环境和 `.env`
 - 依赖包路径指向精简版 `requirements-prod.txt`
-- 验证：状态「运行中」+ `curl http://127.0.0.1:8000/health` 返回 JSON
+- 验证：API/Worker 均为「运行中」+ `/health` 返回 `database: ok`、`queue: ok`
 - 数据表由 SQLAlchemy `create_all` 自动建；`migrations/*.sql` 只给已有数据升级用
 
 ## 六、域名解析 + HTTPS + 反向代理
