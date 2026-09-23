@@ -79,7 +79,7 @@ async function testFirstLaunchWaitsForOneTapLogin() {
 
   assert.equal(user.id, 7);
   assert.equal(fixture.calls.login, 1);
-  assert.equal(requestOptions.url, 'http://127.0.0.1:8000/api/auth/login');
+  assert.equal(requestOptions.url, 'https://api.quizapp.chat/api/auth/login');
   assert.equal(requestOptions.data.code, 'wx-one-time-code');
   assert.equal(requestOptions.timeout, 15000);
   assert.equal(fixture.app.globalData.accessToken, 'app-token');
@@ -88,8 +88,8 @@ async function testFirstLaunchWaitsForOneTapLogin() {
   assert.equal(fixture.storage.get('accessToken'), 'app-token');
 }
 
-async function testRealDeviceDevelopUsesProductionHttps() {
-  const fixture = loadApp({ platform: 'android' });
+async function testDevelopEnvironmentUsesProductionHttps() {
+  const fixture = loadApp();
 
   fixture.app.onLaunch();
   await fixture.app.globalData.sessionRestorePromise;
@@ -224,7 +224,7 @@ async function testLogoutRequiresManualLogin() {
 
 (async () => {
   await testFirstLaunchWaitsForOneTapLogin();
-  await testRealDeviceDevelopUsesProductionHttps();
+  await testDevelopEnvironmentUsesProductionHttps();
   await testLoginReportsRequestDomainFailure();
   await testLoginReportsAbortedConnection();
   await testCachedSessionIsVerifiedWithoutWxLogin();

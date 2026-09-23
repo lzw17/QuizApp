@@ -36,7 +36,7 @@ App({
     sessionVersion: 0,
     isNewUser: false,
     profileRequired: false,
-    baseUrl: 'https://api.quizapp.chat', // 真机、体验版和正式版统一使用生产 HTTPS 域名
+    baseUrl: 'https://api.quizapp.chat', // 开发者工具、真机、体验版和正式版统一使用生产 HTTPS 域名
   },
 
   onLaunch() {
@@ -51,16 +51,6 @@ App({
           fail: () => resolve({ event: 'disagree' }),
         });
       });
-    }
-    const deviceInfo = typeof wx.getDeviceInfo === 'function'
-      ? wx.getDeviceInfo()
-      : (typeof wx.getSystemInfoSync === 'function' ? wx.getSystemInfoSync() : {});
-    const platform = deviceInfo.platform || '';
-    const accountInfo = wx.getAccountInfoSync ? wx.getAccountInfoSync() : {};
-    const envVersion = (accountInfo.miniProgram && accountInfo.miniProgram.envVersion) || 'develop';
-    if (envVersion === 'develop' && platform === 'devtools') {
-      // 仅开发者工具连接本机；真机调试也必须使用已备案的 HTTPS 域名。
-      this.globalData.baseUrl = 'http://127.0.0.1:8000';
     }
     const sessionPromise = this._initializeSession();
     this.globalData.sessionRestorePromise = sessionPromise;

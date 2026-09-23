@@ -145,12 +145,11 @@ ALLOWED_ORIGINS=https://api.xxx.com             # 逗号分隔字符串
    - uploadFile 合法域名：同上
    - socket/downloadFile/udp/tcp：用不到就留空
 2. **《用户隐私保护指引》**（不配提审大概率被拒）：声明昵称、头像、做题记录、上传文档（注明交由第三方 AI 处理）
-3. **app.js baseUrl 环境判断**（好的实践，直接复用）：
+3. **app.js baseUrl 配置**：
    ```js
-   baseUrl: 'https://api.xxx.com'  // 默认生产
-   // devtools 模拟器自动切本地，真机/体验版走线上
+   baseUrl: 'https://api.xxx.com'  // 开发者工具、真机、体验版和正式版统一走线上 HTTPS
    ```
-   注意：真机调试连不上电脑的 127.0.0.1，真机测试要么用体验版走线上，要么临时改 baseUrl
+   本机未启动后端时不要加入 `127.0.0.1` 的自动覆盖逻辑；需要本地后端联调时再临时修改，并在提交前恢复线上域名。
 4. **登录方案**：wx.login → code2Session（后端换 openid）→ 自签 JWT → 401 静默重登，全程无感。不要透传 session_key，AppSecret 绝不进前端
 5. **AIGC 标识**：所有 AI 生成内容展示处加「AI 生成 · 仅供参考」角标（审核硬要求）
 6. 真机调试 Console 里 `[广告调试]`、`backgroundfetch privacy fail` 红字是微信框架噪音，无视
@@ -191,7 +190,7 @@ ALLOWED_ORIGINS=https://api.xxx.com             # 逗号分隔字符串
 | 反代后 404 | location 块被误改/未插入完整块；根路径本就无路由，测 `/health` |
 | 证书申请了但 https 不通 | 忘点「部署」 |
 | SSE 进度卡住 | `proxy_buffering off` |
-| 真机调试连不上后端 | 开发版 baseUrl 是 127.0.0.1，手机够不到 |
+| 开发者工具或真机连不上后端 | 确认 baseUrl 为线上 HTTPS 域名，并同时配置 request/uploadFile 合法域名 |
 | 轮询/SSE 失败 toast 轰炸 | 失败提示做静默重试+次数上限 |
 
 ---

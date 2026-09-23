@@ -80,6 +80,39 @@ function testExpiredTimerSubmitsWithoutModal() {
   assert.equal(submitCount, 1);
 }
 
+function testSelectedOptionsPersistAcrossQuestionNavigation() {
+  const page = loadExamPage({
+    requestModule: { getUserId: async () => 1, request: async () => ({}) },
+    wx: {},
+  });
+  page._questions = [
+    { id: 1, type: 'single', options: [{ key: 'A' }, { key: 'B' }] },
+    { id: 2, type: 'multi', options: [{ key: 'A' }, { key: 'B' }] },
+  ];
+  page.data.userAnswers = ['', ''];
+  page._showQuestion(0);
+  page.selectOption({ currentTarget: { dataset: { key: 'B' } } });
+  assert.equal(page.data.userAnswers[0], 'B');
+  assert.equal(page.data.selectedKeys.B, true);
+
+  page.nextQ();
+  assert.equal(Object.keys(page.data.selectedKeys).length, 0);
+  page.selectOption({ currentTarget: { dataset: { key: 'A' } } });
+  page.selectOption({ currentTarget: { dataset: { key: 'B' } } });
+  assert.equal(page.data.userAnswers[1], 'AB');
+  assert.equal(page.data.selectedKeys.A, true);
+  assert.equal(page.data.selectedKeys.B, true);
+
+  page.prevQ();
+  assert.equal(page.data.selectedKeys.B, true);
+  assert.equal(Boolean(page.data.selectedKeys.A), false);
+  page.data.showSheet = true;
+  page.jumpTo({ currentTarget: { dataset: { index: 1 } } });
+  assert.equal(page.data.showSheet, false);
+  assert.equal(page.data.selectedKeys.A, true);
+  assert.equal(page.data.selectedKeys.B, true);
+}
+
 async function testExpiredSubmissionRetriesAfterSubmittingIsReleased() {
   const scheduled = [];
   const toasts = [];
@@ -134,6 +167,7 @@ async function testExpiredSubmissionRetriesAfterSubmittingIsReleased() {
 async function main() {
   await testServerDurationDrivesCountdown();
   testExpiredTimerSubmitsWithoutModal();
+  testSelectedOptionsPersistAcrossQuestionNavigation();
   await testExpiredSubmissionRetriesAfterSubmittingIsReleased();
   console.log('miniapp exam flow tests passed');
 }

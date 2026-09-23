@@ -1,6 +1,21 @@
 const { request, getUserId } = require('../../utils/request');
 const app = getApp();
 
+function formatAnswer(question, answer, emptyText = '暂无答案') {
+  const raw = String(answer || '').trim();
+  if (!raw) return emptyText;
+
+  const optionMap = {};
+  (question.options || []).forEach(option => {
+    const key = String(option.key || '').trim().toUpperCase();
+    if (key) optionMap[key] = String(option.text || '').trim();
+  });
+  const compact = raw.replace(/[,，、|\s]+/g, '').toUpperCase();
+  const keys = compact.split('').filter(key => Object.prototype.hasOwnProperty.call(optionMap, key));
+  if (!keys.length) return raw;
+  return keys.map(key => optionMap[key] ? `${key}. ${optionMap[key]}` : key).join('；');
+}
+
 Page({
   data: {
     activeTab: 'wrong',
@@ -24,9 +39,14 @@ Page({
 
   onShow() {
     const pendingBankId = wx.getStorageSync('wrongBookFilterBankId');
+    const pendingTab = wx.getStorageSync('wrongBookActiveTab');
     if (pendingBankId) {
       wx.removeStorageSync('wrongBookFilterBankId');
       this.setData({ filterBankId: parseInt(pendingBankId) || '' });
+    }
+    if (pendingTab) wx.removeStorageSync('wrongBookActiveTab');
+    if (pendingTab === 'wrong' || pendingTab === 'star') {
+      this.setData({ activeTab: pendingTab });
     }
     // 更新自定义 tabBar 选中状态
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
@@ -86,6 +106,8 @@ Page({
       const page = list.map(item => ({
         ...item,
         answered_at: item.answered_at ? item.answered_at.slice(0, 10) : '',
+        userAnswerText: formatAnswer(item.question || {}, item.user_answer, '未作答'),
+        correctAnswerText: formatAnswer(item.question || {}, item.question && item.question.answer),
       }));
       if (requestId !== this._wrongRequestId) return;
       const wrongList = append ? this.data.wrongList.concat(page) : page;
@@ -114,12 +136,16 @@ Page({
     try {
       const skip = append ? this.data.starList.length : 0;
       const bankQuery = filterBankId ? `&bank_id=${filterBankId}` : '';
-      const [page, countInfo] = await Promise.all([
+      const [rawPage, countInfo] = await Promise.all([
         request({ url: `/api/starred-questions?skip=${skip}&limit=50${bankQuery}` }),
         append
           ? Promise.resolve({ total: this.data.starTotal })
           : request({ url: `/api/questions/count?mode=starred${bankQuery}` }),
       ]);
+      const page = rawPage.map(question => ({
+        ...question,
+        correctAnswerText: formatAnswer(question, question.answer),
+      }));
       if (requestId !== this._starRequestId) return;
       const starList = append ? this.data.starList.concat(page) : page;
       const starTotal = Number(countInfo.total || starList.length);
