@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
 from urllib.parse import urlparse
+import ipaddress
 import os
 import re
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -25,6 +26,10 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: float = 60.0
     LLM_MAX_RETRIES: int = 2
     LLM_MAX_TOKENS: int = 4096
+    # 允许使用明文 HTTP 的 LLM 主机白名单（逗号分隔）。
+    # 仅用于内网自建网关（这类服务通常只监听明文 HTTP/2，不提供 TLS），
+    # 公网地址仍然强制 HTTPS。私网 IP / localhost / *.local 自动放行，无需在此填写。
+    LLM_ALLOW_INSECURE_HTTP_HOSTS: str = ""
 
     DEEPSEEK_API_KEY: str = ""
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
@@ -109,6 +114,35 @@ class Settings(BaseSettings):
         if value.lower().endswith(suffix):
             value = value[:-len(suffix)].rstrip("/")
         return value
+
+    @property
+    def llm_insecure_http_hosts_set(self) -> set[str]:
+        return {
+            host.strip().lower()
+            for host in self.LLM_ALLOW_INSECURE_HTTP_HOSTS.split(",")
+            if host.strip()
+        }
+
+    @staticmethod
+    def _is_internal_host(host: str) -> bool:
+        """内网/本机地址判定：这些目标通常只在私网内提供明文服务。"""
+        host = (host or "").strip().lower().strip("[]")
+        if not host:
+            return False
+        if host in ("localhost", "127.0.0.1", "::1") or host.endswith(".local"):
+            return True
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        return ip.is_private or ip.is_loopback or ip.is_link_local
+
+    def llm_http_allowed(self, host: str) -> bool:
+        """LLM 地址是否允许使用明文 HTTP（仅内网地址或显式白名单）。"""
+        host = (host or "").strip().lower()
+        if not host:
+            return False
+        return host in self.llm_insecure_http_hosts_set or self._is_internal_host(host)
 
     @staticmethod
     def _is_placeholder(value: str) -> bool:
@@ -202,8 +236,11 @@ class Settings(BaseSettings):
             raise RuntimeError("WX_SECRET format is invalid")
         if self._is_placeholder(self.llm_api_key):
             raise RuntimeError("LLM_API_KEY is required in production")
-        if llm_url.scheme != "https":
-            raise RuntimeError("LLM_BASE_URL must use HTTPS in production")
+        if llm_url.scheme != "https" and not self.llm_http_allowed(llm_url.hostname or ""):
+            raise RuntimeError(
+                "LLM_BASE_URL must use HTTPS in production; plain HTTP is only allowed for "
+                "private/internal hosts (add the host to LLM_ALLOW_INSECURE_HTTP_HOSTS to allow it)"
+            )
         if len(self.SECRET_KEY) < 32 or self._is_placeholder(self.SECRET_KEY) or self.SECRET_KEY in (
             "dev-secret-key",
             "your-secret-key-change-in-production",
