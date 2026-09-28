@@ -16,7 +16,11 @@ function formatAnswer(question, answer, emptyText = '暂无答案') {
   return keys.map(key => optionMap[key] ? `${key}. ${optionMap[key]}` : key).join('；');
 }
 
+const share = require('../../utils/share');
+
 Page({
+  onShareAppMessage() { return share.shareApp(this); },
+  onShareTimeline() { return share.shareTimeline(this); },
   data: {
     activeTab: 'wrong',
     wrongList: [],

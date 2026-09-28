@@ -3,7 +3,11 @@ const app = getApp();
 const AUTO_SUBMIT_MAX_ATTEMPTS = 3;
 const AUTO_SUBMIT_RETRY_DELAY_MS = 1500;
 
+const share = require('../../utils/share');
+
 Page({
+  onShareAppMessage() { return share.shareApp(this); },
+  onShareTimeline() { return share.shareTimeline(this); },
   data: {
     bankId: null,
     bankName: '',

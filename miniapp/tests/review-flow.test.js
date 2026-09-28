@@ -18,6 +18,7 @@ function loadPage(relativePath, mocks) {
     wx: mocks.wx || {},
     require: request => {
       if (request === '../../utils/request') return mocks.requestModule;
+      if (request === '../../utils/share') return require('../utils/share');
       throw new Error(`Unexpected require: ${request}`);
     },
   };

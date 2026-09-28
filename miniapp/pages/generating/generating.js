@@ -1,6 +1,10 @@
 const { pollTask } = require('../../utils/request');
 
+const share = require('../../utils/share');
+
 Page({
+  onShareAppMessage() { return share.shareApp(this); },
+  onShareTimeline() { return share.shareTimeline(this); },
   data: {
     taskId: '',
     bankId: null,

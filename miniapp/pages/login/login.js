@@ -1,7 +1,12 @@
 const app = getApp();
 const { request, uploadFile } = require('../../utils/request');
 
+const share = require('../../utils/share');
+
 Page({
+  onShareAppMessage() { return share.shareApp(this); },
+  onShareTimeline() { return share.shareTimeline(this); },
+
   data: {
     stage: 'login',   // 'login' | 'setup'
     avatarUrl: '',

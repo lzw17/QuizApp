@@ -1,7 +1,11 @@
 const { request, getUserId } = require('../../utils/request');
 const app = getApp();
 
+const share = require('../../utils/share');
+
 Page({
+  onShareAppMessage() { return share.shareApp(this); },
+  onShareTimeline() { return share.shareTimeline(this); },
   data: {
     bankId: null,
     mode: 'sequential',
