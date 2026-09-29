@@ -55,7 +55,7 @@
 
   <!-- 题目 -->
   <view class="question-card">
-    <view class="aigc-badge">AI 生成 · 仅供参考</view>
+    <view class="aigc-badge">自动生成 · 仅供参考</view>
     <view class="q-num">第 {{currentIndex + 1}} 题</view>
     <view class="q-type-tag {{currentQ.type}}">{{typeLabel[currentQ.type]}}</view>
     <view class="q-content">{{currentQ.content}}</view>

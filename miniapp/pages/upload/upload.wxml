@@ -75,13 +75,13 @@
   </view>
 
   <view class="ai-privacy-note">
-    资料内容会发送给第三方 AI 用于出题；网页链接会通过 Jina Reader 提取正文，PDF 可能通过 MinerU 解析。请勿上传敏感或无权处理的内容。
+    资料内容会发送给第三方服务用于出题；网页链接会通过 Jina Reader 提取正文，PDF 可能通过 MinerU 解析。请勿上传敏感或无权处理的内容。
   </view>
 
   <!-- 提交按钮 -->
   <view class="submit-area">
     <button class="btn-primary submit-btn" bindtap="submit" loading="{{submitting}}" disabled="{{submitting}}">
-      {{submitting ? (uploadProgress > 0 ? '上传中 ' + uploadProgress + '%' : 'AI 生成中...') : '开始生成题库'}}
+      {{submitting ? (uploadProgress > 0 ? '上传中 ' + uploadProgress + '%' : '生成中...') : '开始生成题库'}}
     </button>
   </view>
 </view>
