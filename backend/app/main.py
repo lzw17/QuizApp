@@ -10,6 +10,7 @@ import os
 from .config import settings
 from .database import create_tables, SessionLocal, engine
 from .routers import upload, questions, practice, auth
+from .services.ai_engine import close_llm_clients
 from .services.generation_service import recover_interrupted_tasks
 from .task_queue import (
     close_task_queue,
@@ -64,6 +65,7 @@ async def startup():
 
 @app.on_event("shutdown")
 async def shutdown():
+    await close_llm_clients()
     await close_task_queue()
 
 

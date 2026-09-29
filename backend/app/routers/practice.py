@@ -182,7 +182,8 @@ def submit_exam(
         )
         try:
             result = submit_answer(db, submit, current_user, commit=False)
-            question = db.query(Question).filter(Question.id == item.question_id).first()
+            # 复用循环外已批量查好的题目，避免每题一次查询（最多 100 次 N+1）
+            question = by_id.get(item.question_id)
             results.append(ExamResultItem(
                 question_id=item.question_id,
                 type=question.type if question else "single",
@@ -336,14 +337,21 @@ def get_daily_question(
     bank = bank_query.order_by(QuestionBank.id.desc()).first()
     if not bank:
         raise HTTPException(404, "no ready question bank")
-    questions = db.query(Question).filter(
+    #
+    # 只为取 1 道题，不能把整个题库的完整行拉进内存（题库越大越吃内存）。
+    # 用 count + offset 定位同一天选题，等价于「全量列表取模」，但只读一行。
+    base_query = db.query(Question).filter(
         Question.bank_id == bank.id,
         Question.status == "active",
-    ).order_by(Question.order_index, Question.id).all()
-    if not questions:
+    )
+    total_questions = base_query.count()
+    if not total_questions:
         raise HTTPException(404, "question bank is empty")
     today = local_today()
-    question = questions[int(today.strftime("%Y%m%d")) % len(questions)]
+    offset = int(today.strftime("%Y%m%d")) % total_questions
+    question = base_query.order_by(Question.order_index, Question.id).offset(offset).limit(1).first()
+    if question is None:
+        raise HTTPException(404, "question bank is empty")
     today_start, today_end = local_day_utc_bounds(today)
     answered = db.query(AnswerRecord.id).filter(
         AnswerRecord.user_id == current_user.id,

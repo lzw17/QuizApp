@@ -19,16 +19,37 @@ logger = logging.getLogger(__name__)
 #  OpenAI 兼容模型客户端
 # ──────────────────────────────────────────
 
+# 按 temperature 复用客户端。此前每次调用都新建 ChatOpenAI（底层是 httpx/AsyncOpenAI），
+# 且从不关闭——单个任务最多 100 个文本块 × 2 次生成 + 标签分类，会持续累积连接与
+# 文件描述符（1G 机器上尤其危险）。复用后客户端数量恒定（≤ temperature 取值数）。
+_LLM_CLIENTS: dict = {}
+
+
 def get_llm(temperature: float = 0.7) -> ChatOpenAI:
-    return ChatOpenAI(
-        model=settings.llm_model,
-        openai_api_key=settings.llm_api_key,
-        openai_api_base=settings.llm_base_url,
-        temperature=temperature,
-        max_tokens=settings.LLM_MAX_TOKENS,
-        timeout=settings.LLM_TIMEOUT_SECONDS,
-        max_retries=settings.LLM_MAX_RETRIES,
-    )
+    client = _LLM_CLIENTS.get(temperature)
+    if client is None:
+        client = ChatOpenAI(
+            model=settings.llm_model,
+            openai_api_key=settings.llm_api_key,
+            openai_api_base=settings.llm_base_url,
+            temperature=temperature,
+            max_tokens=settings.LLM_MAX_TOKENS,
+            timeout=settings.LLM_TIMEOUT_SECONDS,
+            max_retries=settings.LLM_MAX_RETRIES,
+        )
+        _LLM_CLIENTS[temperature] = client
+    return client
+
+
+async def close_llm_clients() -> None:
+    """释放复用的 LLM 客户端（进程退出时调用；幂等）。"""
+    clients = list(_LLM_CLIENTS.values())
+    _LLM_CLIENTS.clear()
+    for client in clients:
+        try:
+            await client.async_client.close()
+        except Exception:  # noqa: BLE001 - 关闭失败不应影响进程退出
+            logger.debug("关闭 LLM 客户端失败", exc_info=True)
 
 
 # ──────────────────────────────────────────
@@ -172,16 +193,16 @@ async def generate_from_chunk(
     direct_chain = DIRECT_PROMPT | llm | parser
     logic_chain = LOGIC_PROMPT | llm | parser
 
-    # 并行调用两个 Agent
-    try:
-        direct_raw, logic_raw = await asyncio.gather(
-            direct_chain.ainvoke({"context": chunk, "num": num_direct}),
-            logic_chain.ainvoke({"context": chunk, "num": num_logic}),
-            return_exceptions=True,
-        )
-    except Exception as e:
-        logger.error("LLM 调用异常（%s）", type(e).__name__)
-        return []
+    # 并行调用两个 Agent。return_exceptions=True 已保证单个失败不影响另一个，
+    # 因此这里无需再包一层 try/except（旧代码的 except 永远不会触发）。
+    direct_raw, logic_raw = await asyncio.gather(
+        direct_chain.ainvoke({"context": chunk, "num": num_direct}),
+        logic_chain.ainvoke({"context": chunk, "num": num_logic}),
+        return_exceptions=True,
+    )
+    for raw, label in ((direct_raw, "直白题"), (logic_raw, "逻辑题")):
+        if isinstance(raw, BaseException):
+            logger.warning("%s LLM 调用失败（%s）", label, type(raw).__name__)
 
     all_raw = []
     if not isinstance(direct_raw, Exception):

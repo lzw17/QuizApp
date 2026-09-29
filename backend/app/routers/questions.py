@@ -100,15 +100,14 @@ def get_bank_detail(
         require_ready=not current_user.is_admin,
     )
 
-    # 动态聚合所有标签
-    questions = db.query(Question).filter(
+    # 动态聚合所有标签：只取 tags 单列，不加载整行（题干/选项等大字段）
+    tag_set = set()
+    for (tags,) in db.query(Question.tags).filter(
         Question.bank_id == bank_id,
         Question.status == "active",
-    ).all()
-    tag_set = set()
-    for q in questions:
-        for t in (q.tags or []):
-            tag_set.add(str(t))
+    ).all():
+        for tag in (tags or []):
+            tag_set.add(str(tag))
 
     result = QuestionBankOut.model_validate(bank)
     result.tags = sorted(tag_set)

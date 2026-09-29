@@ -9,7 +9,7 @@ import os
 import uuid
 import asyncio
 import socket
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from urllib.parse import urlparse
 import ipaddress
 import aiofiles
@@ -33,6 +33,40 @@ router = APIRouter(prefix="/api", tags=["upload"])
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx"}
 _generation_admission_lock = asyncio.Lock()
+
+# SSE 长连接护栏：单条连接最长持有 TASK_STALE_MINUTES，且每 1.5s 轮询一次数据库；
+# 1G 单 worker 部署下一个账号开多条连接即可放大资源占用，因此限制总量与每用户数量。
+MAX_SSE_CONNECTIONS_TOTAL = 20
+MAX_SSE_CONNECTIONS_PER_USER = 2
+SSE_POLL_INTERVAL_SECONDS = 3
+SSE_MAX_DURATION_SECONDS = 900
+_sse_slot_lock = asyncio.Lock()
+_sse_connections_total = 0
+_sse_connections_by_user: dict = {}
+
+
+async def _acquire_sse_slot(user_id: int) -> bool:
+    """占用一个 SSE 长连接名额；已满则返回 False（调用方回 429）。"""
+    global _sse_connections_total
+    async with _sse_slot_lock:
+        if _sse_connections_total >= MAX_SSE_CONNECTIONS_TOTAL:
+            return False
+        if _sse_connections_by_user.get(user_id, 0) >= MAX_SSE_CONNECTIONS_PER_USER:
+            return False
+        _sse_connections_total += 1
+        _sse_connections_by_user[user_id] = _sse_connections_by_user.get(user_id, 0) + 1
+        return True
+
+
+async def _release_sse_slot(user_id: int) -> None:
+    global _sse_connections_total
+    async with _sse_slot_lock:
+        _sse_connections_total = max(0, _sse_connections_total - 1)
+        remaining = _sse_connections_by_user.get(user_id, 0) - 1
+        if remaining > 0:
+            _sse_connections_by_user[user_id] = remaining
+        else:
+            _sse_connections_by_user.pop(user_id, None)
 
 
 def _ensure_generation_capacity(
@@ -366,7 +400,15 @@ async def task_sse(
     """SSE 实时推送出题进度"""
     import json
 
-    _get_owned_task(db, task_id, current_user)
+    if not await _acquire_sse_slot(current_user.id):
+        raise HTTPException(429, "进度连接数过多，请稍后重试")
+
+    user_id = current_user.id
+    try:
+        _get_owned_task(db, task_id, current_user)
+    except Exception:
+        await _release_sse_slot(user_id)
+        raise
     db.close()
 
     def read_task_snapshot():
@@ -390,37 +432,45 @@ async def task_sse(
             poll_db.close()
 
     async def event_generator():
-        deadline = asyncio.get_running_loop().time() + max(60, settings.TASK_STALE_MINUTES * 60)
-        while True:
-            snapshot = await asyncio.to_thread(read_task_snapshot)
-            if not snapshot:
-                yield f"data: {json.dumps({'error': '任务不存在'})}\n\n"
-                break
+        # 硬上限取「任务陈旧时间」与 SSE_MAX_DURATION_SECONDS 的较小值，避免连接长期占用名额
+        deadline = asyncio.get_running_loop().time() + min(
+            max(60, settings.TASK_STALE_MINUTES * 60),
+            SSE_MAX_DURATION_SECONDS,
+        )
+        try:
+            while True:
+                snapshot = await asyncio.to_thread(read_task_snapshot)
+                if not snapshot:
+                    yield f"data: {json.dumps({'error': '任务不存在'})}\n\n"
+                    break
 
-            payload = {
-                "status": snapshot["status"],
-                "progress": snapshot["progress"],
-                "total_chunks": snapshot["total_chunks"],
-                "processed_chunks": snapshot["processed_chunks"],
-                "failed_chunks": snapshot["failed_chunks"],
-                "generated_count": snapshot["generated_count"],
-                "partial_success": snapshot["partial_success"],
-                "message": snapshot["message"],
-                "error": (
-                    "生成失败，请更换资料或稍后重试"
-                    if snapshot["status"] == "failed"
-                    else snapshot["error"]
-                ),
-            }
-            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                payload = {
+                    "status": snapshot["status"],
+                    "progress": snapshot["progress"],
+                    "total_chunks": snapshot["total_chunks"],
+                    "processed_chunks": snapshot["processed_chunks"],
+                    "failed_chunks": snapshot["failed_chunks"],
+                    "generated_count": snapshot["generated_count"],
+                    "partial_success": snapshot["partial_success"],
+                    "message": snapshot["message"],
+                    "error": (
+                        "生成失败，请更换资料或稍后重试"
+                        if snapshot["status"] == "failed"
+                        else snapshot["error"]
+                    ),
+                }
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
-            if snapshot["status"] in ("done", "failed"):
-                break
+                if snapshot["status"] in ("done", "failed"):
+                    break
 
-            if asyncio.get_running_loop().time() >= deadline:
-                yield f"data: {json.dumps({'error': '任务状态查询超时'})}\n\n"
-                break
-            await asyncio.sleep(1.5)
+                if asyncio.get_running_loop().time() >= deadline:
+                    yield f"data: {json.dumps({'error': '任务状态查询超时'})}\n\n"
+                    break
+                await asyncio.sleep(SSE_POLL_INTERVAL_SECONDS)
+        finally:
+            # 客户端提前断开也会走到这里，确保名额归还
+            await _release_sse_slot(user_id)
 
     return StreamingResponse(
         event_generator(),

@@ -356,6 +356,39 @@ def update_progress_position(
 #  用户统计
 # ──────────────────────────────────────────
 
+# 连续打卡只统计「截至今天」的连续天数：只要今天没作答，无论历史多长结果都是 0。
+# 因此无需拉取全部历史作答记录（数据量随使用时间无限增长），
+# 先用一个较窄的窗口计算，只有窗口被填满（说明连续天数更长）才扩展到最大值。
+STREAK_WINDOW_DAYS = 90
+STREAK_MAX_WINDOW_DAYS = 400
+
+
+def _answered_local_days(db: Session, user_id: int, days: int) -> set:
+    """取最近 N 天内的作答日期集合（仅查 answered_at 一列，不做全历史扫描）。"""
+    since = utc_now() - timedelta(days=days)
+    rows = db.query(AnswerRecord.answered_at).filter(
+        AnswerRecord.user_id == user_id,
+        AnswerRecord.answered_at.isnot(None),
+        AnswerRecord.answered_at >= since,
+    ).all()
+    return {utc_timestamp_to_local_date(row.answered_at) for row in rows}
+
+
+def _compute_streak_days(db: Session, user_id: int) -> int:
+    window = STREAK_WINDOW_DAYS
+    while True:
+        answered_days = _answered_local_days(db, user_id, window)
+        streak_days = 0
+        cursor = local_today()
+        while cursor in answered_days:
+            streak_days += 1
+            cursor -= timedelta(days=1)
+        # 未填满窗口说明连续段已结束；填满则可能是窗口截断，扩展后再算一次
+        if streak_days < window or window >= STREAK_MAX_WINDOW_DAYS:
+            return streak_days
+        window = STREAK_MAX_WINDOW_DAYS
+
+
 def get_user_stats(db: Session, user_id: int) -> dict:
     user = db.get(User, user_id)
     total_records = db.query(AnswerRecord).filter(AnswerRecord.user_id == user_id).count()
@@ -380,10 +413,10 @@ def get_user_stats(db: Session, user_id: int) -> dict:
 
     # 错题和收藏只统计当前仍可访问的有效题目，避免已删除题库继续
     # 出现在个人统计中，但在错题本列表里不可见。
+    # 只取 starred_ids 单列，不加载整行，减少大用户下的内存占用。
     starred_ids = set()
-    all_progress = db.query(UserProgress).filter(UserProgress.user_id == user_id).all()
-    for p in all_progress:
-        starred_ids.update(p.starred_ids or [])
+    for (ids,) in db.query(UserProgress.starred_ids).filter(UserProgress.user_id == user_id).all():
+        starred_ids.update(ids or [])
 
     def count_accessible(question_ids) -> int:
         if not user or not question_ids:
@@ -398,18 +431,7 @@ def get_user_stats(db: Session, user_id: int) -> dict:
     starred_count = count_accessible(starred_ids)
 
     accuracy = round(correct_records / total_records, 3) if total_records > 0 else 0.0
-    answered_days = {
-        utc_timestamp_to_local_date(record.answered_at)
-        for record in db.query(AnswerRecord.answered_at).filter(
-            AnswerRecord.user_id == user_id,
-            AnswerRecord.answered_at.isnot(None),
-        ).all()
-    }
-    streak_days = 0
-    cursor = local_today()
-    while cursor in answered_days:
-        streak_days += 1
-        cursor -= timedelta(days=1)
+    streak_days = _compute_streak_days(db, user_id)
 
     result = {
         "total_answered": total_records,

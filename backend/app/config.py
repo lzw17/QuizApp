@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     GENERATION_CHUNK_OVERLAP: int = 150
     # 单个任务内并行处理的段落数（网络等待为主，不影响小内存机器）
     GENERATION_CHUNK_CONCURRENCY: int = 3
+    # 重复投递/重启接管时，等待「仍活着的在途批次」的时长上限（秒）。
+    # 超出后本次执行不再等待，交由原执行者收尾，避免任务被提前判定完成。
+    GENERATION_TAKEOVER_WAIT_SECONDS: int = 300
 
     # 持久化任务队列。本地开发可用 in_process，生产必须使用 arq。
     GENERATION_QUEUE_MODE: str = "in_process"

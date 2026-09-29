@@ -2,9 +2,12 @@
 import asyncio
 import logging
 import os
+import time
+from datetime import timedelta
 from typing import List, Optional
 
 from sqlalchemy import func as sa_func
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -31,6 +34,50 @@ class GenerationCancelled(Exception):
 
 def _status_is(value, expected) -> bool:
     return value in (expected, expected.value)
+
+
+# ──────────────────────────────────────────
+#  在途批次（running）的存活判定
+#
+#  每个批次都受 GENERATION_BATCH_TIMEOUT_SECONDS 硬超时保护，正常执行者不可能让一个
+#  批次长期停在 running。因此：
+#    · started_at 超过「超时 + 余量」仍是 running  → 执行者已死，可安全接管；
+#    · started_at 还新鲜                            → 执行者仍在工作，绝不能重置，
+#      否则该执行者的 _persist_batch_questions 会因批次状态已变而返回 0，静默丢弃
+#      已经生成好的题目（并重复消耗 LLM 配额）。
+# ──────────────────────────────────────────
+
+def _batch_stale_seconds() -> int:
+    return max(240, int(settings.GENERATION_BATCH_TIMEOUT_SECONDS) + 60)
+
+
+def _stale_batch_cutoff():
+    return utc_now() - timedelta(seconds=_batch_stale_seconds())
+
+
+def _apply_stale_batch_takeover(db: Session, task_id: str) -> int:
+    """把执行者已死亡的 running 批次重置为 pending，返回被接管的批次数量。"""
+    return db.query(GenerationBatch).filter(
+        GenerationBatch.task_id == task_id,
+        GenerationBatch.status == BatchStatus.running,
+        or_(
+            GenerationBatch.started_at.is_(None),
+            GenerationBatch.started_at < _stale_batch_cutoff(),
+        ),
+    ).update(
+        {
+            GenerationBatch.status: BatchStatus.pending,
+            GenerationBatch.started_at: None,
+        },
+        synchronize_session=False,
+    )
+
+
+def _has_running_batches(db: Session, task_id: str) -> bool:
+    return db.query(GenerationBatch.id).filter(
+        GenerationBatch.task_id == task_id,
+        GenerationBatch.status == BatchStatus.running,
+    ).first() is not None
 
 
 def recover_interrupted_tasks(db: Session) -> List[str]:
@@ -93,16 +140,9 @@ def _begin_generation(db_factory, task_id: str) -> Optional[dict]:
             return None
         if not bank or not _status_is(bank.status, BankStatus.pending):
             raise GenerationCancelled("题库已删除或状态已变更")
-        db.query(GenerationBatch).filter(
-            GenerationBatch.task_id == task_id,
-            GenerationBatch.status == BatchStatus.running,
-        ).update(
-            {
-                GenerationBatch.status: BatchStatus.pending,
-                GenerationBatch.started_at: None,
-            },
-            synchronize_session=False,
-        )
+        # 只接管「执行者已死」的在途批次（详见 _batch_stale_seconds 的说明）。
+        # 重复投递同一任务时，仍活着的执行者不会被抢走批次，避免静默丢题。
+        _apply_stale_batch_takeover(db, task_id)
         task.status = TaskStatus.running
         task.message = "正在恢复生成..." if task.total_chunks else "正在解析文档..."
         task.error = ""
@@ -404,6 +444,10 @@ def _finalize_generation(db_factory, task_id: str, bank_id: int, failure_message
         ).with_for_update().first()
         if not task or not bank or not _status_is(task.status, TaskStatus.running):
             return
+        # 仍有在途批次时不能判定任务结束：可能另一个执行者正在处理（重复投递/恢复接管）。
+        # 抢先 finalize 会把任务置为 done，导致在途批次的落库被判为「已终止」而丢题。
+        if not failure_message and _has_running_batches(db, task_id):
+            return
         if failure_message:
             db.query(GenerationBatch).filter(
                 GenerationBatch.task_id == task_id,
@@ -544,6 +588,27 @@ def _pending_batch_ids(db_factory, task_id: str) -> List[int]:
         db.close()
 
 
+def _takeover_stale_batches(db_factory, task_id: str) -> int:
+    """接管执行者已死亡的 running 批次（线程内执行，返回接管数量）。"""
+    db: Session = db_factory()
+    try:
+        taken_over = _apply_stale_batch_takeover(db, task_id)
+        if taken_over:
+            db.commit()
+            logger.warning("任务 %s 接管了 %s 个已中断的批次", task_id, taken_over)
+        return int(taken_over)
+    finally:
+        db.close()
+
+
+def _running_batches_exist(db_factory, task_id: str) -> bool:
+    db: Session = db_factory()
+    try:
+        return _has_running_batches(db, task_id)
+    finally:
+        db.close()
+
+
 async def _process_generation_batch(
     task_id: str,
     bank_id: int,
@@ -643,7 +708,6 @@ async def _run_generation_pipeline(
             source_type,
         )
 
-    batch_ids = await asyncio.to_thread(_pending_batch_ids, db_factory, task_id)
     semaphore = asyncio.Semaphore(max(1, settings.GENERATION_CHUNK_CONCURRENCY))
 
     async def process(batch_id: int) -> None:
@@ -657,13 +721,38 @@ async def _run_generation_pipeline(
                 num_logic,
             )
 
-    results = await asyncio.gather(
-        *(process(batch_id) for batch_id in batch_ids),
-        return_exceptions=True,
-    )
-    for result in results:
-        if isinstance(result, BaseException):
-            raise result
+    # 循环直到「没有可领取批次且没有在途批次」为止：
+    #   · 有新批次 → 立刻处理（含上一轮接管回来的批次）
+    #   · 无新批次但存在执行者已死的在途批次 → 接管后继续
+    #   · 无新批次但存在活着的在途批次 → 有限等待（另一个执行者正在处理）
+    wait_deadline: Optional[float] = None
+    while True:
+        batch_ids = await asyncio.to_thread(_pending_batch_ids, db_factory, task_id)
+        if batch_ids:
+            results = await asyncio.gather(
+                *(process(batch_id) for batch_id in batch_ids),
+                return_exceptions=True,
+            )
+            for result in results:
+                if isinstance(result, BaseException):
+                    raise result
+            continue
+
+        taken_over = await asyncio.to_thread(_takeover_stale_batches, db_factory, task_id)
+        if taken_over:
+            continue
+
+        if not await asyncio.to_thread(_running_batches_exist, db_factory, task_id):
+            break
+
+        # 仍有活着的执行者：等它结束或变陈旧，超时则不再等待（由它自己收尾）
+        if wait_deadline is None:
+            wait_deadline = time.monotonic() + max(0, settings.GENERATION_TAKEOVER_WAIT_SECONDS)
+        if time.monotonic() >= wait_deadline:
+            logger.warning("任务 %s 仍有在途批次，交由原执行者收尾", task_id)
+            break
+        await asyncio.sleep(min(20, max(1, int(_batch_stale_seconds() / 6))))
+
     await asyncio.to_thread(_finalize_generation, db_factory, task_id, bank_id)
 
 

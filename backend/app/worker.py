@@ -1,6 +1,7 @@
 """ARQ worker entry point for durable AI question generation."""
 from .config import settings
 from .database import SessionLocal
+from .services.ai_engine import close_llm_clients
 from .services.generation_service import run_generate_task
 from .task_queue import redis_settings
 
@@ -13,9 +14,14 @@ async def startup(ctx) -> None:
     settings.validate_runtime_security()
 
 
+async def shutdown(ctx) -> None:
+    await close_llm_clients()
+
+
 class WorkerSettings:
     functions = [run_generation_job]
     on_startup = startup
+    on_shutdown = shutdown
     redis_settings = redis_settings()
     queue_name = settings.ARQ_QUEUE_NAME
     max_jobs = settings.MAX_CONCURRENT_GENERATION_TASKS

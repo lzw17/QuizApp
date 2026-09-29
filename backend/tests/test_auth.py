@@ -1793,6 +1793,150 @@ class AuthFlowTest(unittest.TestCase):
         finally:
             db.close()
 
+    def test_live_running_batch_is_not_stolen_by_duplicate_delivery(self):
+        """重复投递同一任务时，仍在处理中的批次不得被重置（否则已生成的题会被静默丢弃）。"""
+        db = SessionLocal()
+        try:
+            bank = QuestionBank(
+                name=f"live-batch-{uuid.uuid4().hex[:8]}",
+                status="pending",
+                source_type="url",
+                source_file="https://example.com/source",
+                created_by="live-batch-owner",
+            )
+            db.add(bank)
+            db.flush()
+            task_id = uuid.uuid4().hex
+            db.add(GenerateTask(
+                id=task_id,
+                bank_id=bank.id,
+                status="running",
+                total_chunks=1,
+                processed_chunks=0,
+            ))
+            db.add(GenerationBatch(
+                task_id=task_id,
+                bank_id=bank.id,
+                batch_index=0,
+                status="running",
+                source_text="in-flight text",
+                started_at=datetime.utcnow(),  # 新鲜的在途批次：执行者仍活着
+            ))
+            db.commit()
+            bank_id = bank.id
+        finally:
+            db.close()
+
+        generate = AsyncMock(return_value=[])
+        original_wait = settings.GENERATION_TAKEOVER_WAIT_SECONDS
+        settings.GENERATION_TAKEOVER_WAIT_SECONDS = 0
+        try:
+            with patch(
+                "backend.app.services.generation_service.generate_from_chunk",
+                new=generate,
+            ):
+                asyncio.run(run_generate_task(task_id=task_id, db_factory=SessionLocal))
+        finally:
+            settings.GENERATION_TAKEOVER_WAIT_SECONDS = original_wait
+
+        # 不得重复调用 LLM，也不得把在途批次打回 pending
+        generate.assert_not_awaited()
+
+        db = SessionLocal()
+        try:
+            batch = db.query(GenerationBatch).filter(
+                GenerationBatch.task_id == task_id,
+            ).one()
+            self.assertEqual(batch.status, "running")
+            self.assertEqual(batch.source_text, "in-flight text")
+            # 任务不能被提前判定为完成，否则在途批次的落库会被视为「已终止」而丢题
+            self.assertEqual(db.get(GenerateTask, task_id).status, "running")
+
+            db.get(QuestionBank, bank_id).status = "deleted"
+            db.query(GenerationBatch).filter(GenerationBatch.task_id == task_id).delete()
+            db.query(GenerateTask).filter(GenerateTask.id == task_id).delete()
+            db.commit()
+        finally:
+            db.close()
+
+    def test_stale_running_batch_is_taken_over_in_same_job(self):
+        """执行者已死亡（批次超时后仍为 running）时应被接管并继续出题。"""
+        db = SessionLocal()
+        try:
+            bank = QuestionBank(
+                name=f"stale-batch-{uuid.uuid4().hex[:8]}",
+                status="pending",
+                source_type="url",
+                source_file="https://example.com/source",
+                created_by="stale-batch-owner",
+            )
+            db.add(bank)
+            db.flush()
+            bank_id = bank.id
+            task_id = uuid.uuid4().hex
+            db.add(GenerateTask(
+                id=task_id,
+                bank_id=bank_id,
+                status="running",
+                total_chunks=1,
+                processed_chunks=0,
+            ))
+            db.add(GenerationBatch(
+                task_id=task_id,
+                bank_id=bank_id,
+                batch_index=0,
+                status="running",
+                source_text="abandoned text",
+                started_at=datetime.utcnow() - timedelta(minutes=30),  # 远超批次硬超时：执行者已死
+            ))
+            db.commit()
+        finally:
+            db.close()
+
+        generated = [{
+            "bank_id": bank_id,
+            "type": "single",
+            "content": "taken-over question",
+            "options": [{"key": "A", "text": "answer"}],
+            "answer": "A",
+            "explanation": "taken over",
+            "tags": ["recovered"],
+            "difficulty": 2,
+        }]
+        with (
+            patch(
+                "backend.app.services.generation_service.generate_from_chunk",
+                new=AsyncMock(return_value=generated),
+            ),
+            patch(
+                "backend.app.services.generation_service.classify_questions_tags",
+                new=AsyncMock(side_effect=lambda questions: questions),
+            ),
+        ):
+            asyncio.run(run_generate_task(task_id=task_id, db_factory=SessionLocal))
+
+        db = SessionLocal()
+        try:
+            batch = db.query(GenerationBatch).filter(
+                GenerationBatch.task_id == task_id,
+            ).one()
+            self.assertEqual(batch.status, "done")
+            self.assertEqual(batch.generated_count, 1)
+            self.assertEqual(db.get(GenerateTask, task_id).status, "done")
+            self.assertEqual(db.get(QuestionBank, bank_id).status, "ready")
+            self.assertEqual(
+                db.query(Question).filter(Question.bank_id == bank_id).count(),
+                1,
+            )
+
+            db.get(QuestionBank, bank_id).status = "deleted"
+            db.query(Question).filter(Question.bank_id == bank_id).delete()
+            db.query(GenerationBatch).filter(GenerationBatch.task_id == task_id).delete()
+            db.query(GenerateTask).filter(GenerateTask.id == task_id).delete()
+            db.commit()
+        finally:
+            db.close()
+
     def test_batch_and_questions_rollback_together(self):
         from backend.app.services.generation_service import _persist_batch_questions
 
