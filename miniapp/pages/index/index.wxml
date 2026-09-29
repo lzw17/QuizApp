@@ -44,36 +44,13 @@
     <view class="daily-meta">{{dailyQuestion.question.type === 'multi' ? '多选题' : dailyQuestion.question.type === 'judge' ? '判断题' : '单选题'}} · 点击进入练习</view>
   </view>
 
-  <!-- 游客态：先浏览体验，登录与否由用户自行决定 -->
-  <view class="guest-intro card" wx:if="{{!loggedIn}}">
-    <view class="guest-badge">免登录体验</view>
-    <view class="guest-title">一款把资料变成题库的学习工具</view>
-    <view class="guest-sub">无需登录即可浏览，登录仅用于同步你的学习记录</view>
-    <view class="guest-features">
-      <view class="guest-feature">
-        <view class="guest-chip">1</view>
-        <view class="guest-feature-body">
-          <text class="guest-feature-name">资料转题</text>
-          <text class="guest-feature-desc">上传讲义或资料，自动生成单选、多选、判断题</text>
-        </view>
-      </view>
-      <view class="guest-feature">
-        <view class="guest-chip">2</view>
-        <view class="guest-feature-body">
-          <text class="guest-feature-name">多种练习</text>
-          <text class="guest-feature-desc">顺序练习、随机练习、模拟考试，随时开刷</text>
-        </view>
-      </view>
-      <view class="guest-feature">
-        <view class="guest-chip">3</view>
-        <view class="guest-feature-body">
-          <text class="guest-feature-name">错题复盘</text>
-          <text class="guest-feature-desc">错题与星标自动归档，练习数据可视化复盘</text>
-        </view>
-      </view>
+  <!-- 游客横幅：轻量提示，登录与否由用户自行决定 -->
+  <view class="guest-tip card" wx:if="{{isGuest}}">
+    <view class="guest-tip-main">
+      <text class="guest-tip-title">游客体验中</text>
+      <text class="guest-tip-desc">练习记录为临时会话，登录后长期同步，还可上传资料生成专属题库</text>
     </view>
-    <button class="btn-primary guest-login-btn" bindtap="goLogin">微信一键登录</button>
-    <view class="guest-privacy" bindtap="goPrivacy">查看《用户隐私保护指引》</view>
+    <button class="guest-tip-btn" bindtap="goLogin">登录</button>
   </view>
 
   <scroll-view class="category-scroll" scroll-x wx:if="{{loggedIn}}">

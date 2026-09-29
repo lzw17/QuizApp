@@ -17,6 +17,7 @@ Page({
     loading: false,
     userId: null,
     loggedIn: false,
+    isGuest: false,
     page: 0,
     hasMore: true,
     deletingBankId: null,
@@ -67,13 +68,14 @@ Page({
   },
 
   /**
-   * 游客可以直接浏览首页，不触发任何登录跳转；
-   * 只有已登录时才拉取题库/统计/每日一题。
+   * 游客会话也可以浏览与练习（示例题库），不触发任何登录跳转；
+   * 登录入口只以轻量横幅呈现，由用户自行决定。
    */
   async _refreshForSession() {
     const uid = await getUserId();
     const loggedIn = !!uid;
-    this.setData({ loggedIn, userId: uid || null });
+    const isGuest = loggedIn && app.isGuestUser();
+    this.setData({ loggedIn, isGuest, userId: uid || null });
     if (!loggedIn) {
       this.setData({
         banks: [], categories: [], stats: {}, dailyQuestion: null,
@@ -141,7 +143,7 @@ Page({
   },
 
   goUpload() {
-    if (!this.data.loggedIn) {
+    if (app.isGuestUser()) {
       app.promptLogin({ content: '上传资料并生成题库需要登录，是否立即微信登录？' });
       return;
     }

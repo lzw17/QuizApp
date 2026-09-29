@@ -45,7 +45,8 @@ Page({
       return;
     }
 
-    if (user) this._continueAfterLogin();
+    // 已是正式账号会话才直接回首页；游客会话留在登录页供用户主动登录
+    if (user && !app.isGuestUser()) this._continueAfterLogin();
   },
 
   async onWxLogin() {

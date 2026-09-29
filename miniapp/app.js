@@ -35,6 +35,7 @@ App({
     sessionRestorePromise: null,
     sessionVersion: 0,
     isNewUser: false,
+    isGuest: false,
     profileRequired: false,
     baseUrl: 'https://api.quizapp.chat', // 开发者工具、真机、体验版和正式版统一使用生产 HTTPS 域名
     sessionListeners: [],
@@ -69,15 +70,19 @@ App({
     if (this.globalData.sessionRestorePromise) {
       return this.globalData.sessionRestorePromise;
     }
-    if (options.autoLogin === false || wx.getStorageSync('manualLoginRequired')) {
-      return Promise.resolve(null);
-    }
-    return this._startWxLogin(false);
+    // 游客模式：静默创建免授权会话（不弹任何授权窗口、不获取微信身份）。
+    // 用户可体验全部练习功能；登录仅用于上传资料与长期同步。
+    return this._createGuestSession();
   },
 
-  /** 是否已登录（游客态下为 false，页面据此展示登录引导而不是强行跳转） */
+  /** 是否已登录（游客会话也算，页面用 isGuestUser() 区分） */
   isLoggedIn() {
     return !!(this.globalData.userId && this.globalData.accessToken);
+  },
+
+  /** 当前是否为免授权游客会话 */
+  isGuestUser() {
+    return !!this.globalData.isGuest;
   },
 
   /**
@@ -111,14 +116,13 @@ App({
 
   /**
    * 用户主动触发的登录引导。
-   * 只在用户点击了需要登录的功能时调用，由用户确认后再进入登录页，
-   * 满足「先浏览体验，再自行选择授权登录」的审核要求。
+   * 只在用户点击了需要登录的功能（如上传资料）时调用，由用户确认后再进入登录页。
    */
   promptLogin(options = {}) {
     return new Promise(resolve => {
       wx.showModal({
         title: options.title || '需要登录',
-        content: options.content || '登录后即可上传资料、生成专属题库，并同步你的练习与错题记录。',
+        content: options.content || '登录后即可上传资料、生成专属题库，并长期同步你的练习与错题记录。',
         confirmText: options.confirmText || '微信登录',
         cancelText: options.cancelText || '先看看',
         success: res => {
@@ -144,7 +148,8 @@ App({
     const token = wx.getStorageSync('accessToken');
     if (!cached || !cached.id || !token) {
       this.clearSession();
-      return Promise.resolve(null);
+      // 无本地会话：静默创建游客会话（无授权弹窗），游客可体验练习功能
+      return this._createGuestSession();
     }
 
     return new Promise((resolve) => {
@@ -162,7 +167,8 @@ App({
             resolve(res.data);
           } else if (res.statusCode === 401) {
             this.clearSession();
-            resolve(null);
+            // 会话失效（含过期游客）：静默重建游客会话，不打断用户
+            this._createGuestSession().then(user => resolve(user));
           } else {
             // 非鉴权错误时保留缓存，具体请求仍由服务端校验 token。
             this._setSession(cached, token);
@@ -182,20 +188,46 @@ App({
     });
   },
 
-  wxLogin(options = {}) {
-    const force = options.force === true;
-    wx.removeStorageSync('manualLoginRequired');
-    if (this.globalData.sessionRestorePromise) {
-      return this.globalData.sessionRestorePromise.then(user => {
-        if (user && !force) return user;
-        return this._startWxLogin(force);
+  /** 静默创建游客会话；失败（如离线）时返回 null，页面自行降级 */
+  _createGuestSession() {
+    const sessionVersion = this.globalData.sessionVersion;
+    return new Promise(resolve => {
+      wx.request({
+        url: `${this.globalData.baseUrl}/api/auth/guest`,
+        method: 'POST',
+        timeout: AUTH_REQUEST_TIMEOUT_MS,
+        success: res => {
+          if (sessionVersion !== this.globalData.sessionVersion) {
+            resolve(null);
+            return;
+          }
+          if (res.statusCode === 200 && res.data && res.data.user && res.data.access_token) {
+            this._setSession(res.data.user, res.data.access_token);
+            resolve(res.data.user);
+          } else {
+            resolve(null);
+          }
+        },
+        fail: () => resolve(null),
       });
-    }
-    return this._startWxLogin(force);
+    });
   },
 
-  _startWxLogin(force) {
-    if (!force && this.globalData.userId && this.globalData.accessToken) {
+  wxLogin(options = {}) {
+    const force = options.force === true;
+    // 游客会话升级为正式账号：携带游客 token，服务端把练习数据迁移到正式账号
+    const guestToken = this.globalData.isGuest ? this.globalData.accessToken : '';
+    if (this.globalData.sessionRestorePromise) {
+      return this.globalData.sessionRestorePromise.then(user => {
+        if (user && !force && !this.globalData.isGuest) return user;
+        return this._startWxLogin(force, guestToken);
+      });
+    }
+    return this._startWxLogin(force, guestToken);
+  },
+
+  _startWxLogin(force, guestToken = '') {
+    if (!force && this.globalData.userId && this.globalData.accessToken && !this.globalData.isGuest) {
       return Promise.resolve(this.globalData.userInfo);
     }
     if (this.globalData.loginPromise) return this.globalData.loginPromise;
@@ -207,18 +239,19 @@ App({
       });
     });
     this.globalData.loginPromise = startLogin()
-      .then(code => this._doLogin(code))
+      .then(code => this._doLogin(code, guestToken))
       .finally(() => { this.globalData.loginPromise = null; });
     return this.globalData.loginPromise;
   },
 
-  _doLogin(code) {
+  _doLogin(code, guestToken = '') {
     const self = this;
     return new Promise((resolve, reject) => {
       wx.request({
         url: `${self.globalData.baseUrl}/api/auth/login`,
         method: 'POST',
         data: { code },
+        header: guestToken ? { Authorization: `Bearer ${guestToken}` } : {},
         timeout: AUTH_REQUEST_TIMEOUT_MS,
         success(r) {
           if (r.statusCode === 200) {
@@ -231,7 +264,6 @@ App({
             const isNew = r.data.is_new;
             self.globalData.isNewUser = isNew;
             self._setSession(user, token);
-            wx.removeStorageSync('manualLoginRequired');
             resolve(user);
           } else {
             const message = (r.data && r.data.detail) || `登录失败 (${r.statusCode})`;
@@ -250,6 +282,7 @@ App({
     this.globalData.userInfo = user;
     this.globalData.userId = user.id;
     this.globalData.accessToken = token;
+    this.globalData.isGuest = !!(user && user.is_guest);
     this.globalData.profileRequired = false;
     wx.setStorageSync('userInfo', user);
     wx.setStorageSync('accessToken', token);
@@ -260,6 +293,7 @@ App({
     this.globalData.userInfo = null;
     this.globalData.userId = null;
     this.globalData.accessToken = '';
+    this.globalData.isGuest = false;
     this.globalData.isNewUser = false;
     this.globalData.profileRequired = false;
     wx.removeStorageSync('userInfo');
@@ -275,7 +309,7 @@ App({
 
   logout() {
     const token = this.globalData.accessToken;
-    if (token) {
+    if (token && !this.globalData.isGuest) {
       wx.request({
         url: `${this.globalData.baseUrl}/api/auth/logout`,
         method: 'POST',
@@ -284,8 +318,7 @@ App({
       });
     }
     this.clearSession();
-    wx.setStorageSync('manualLoginRequired', true);
-    // 退出后回到首页以游客身份浏览，不强制跳登录页
+    // 退出后回到首页，静默转为新的游客会话继续体验
     wx.reLaunch({ url: '/pages/index/index' });
   },
 });

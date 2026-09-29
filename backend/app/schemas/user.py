@@ -8,6 +8,7 @@ class UserOut(BaseModel):
     nickname: Optional[str] = ""
     avatar: Optional[str] = ""
     is_admin: bool
+    is_guest: bool = False
 
     class Config:
         from_attributes = True

@@ -9,9 +9,9 @@
         <text class="avatar-initial">{{userInfo.nickname ? userInfo.nickname[0] : '?'}}</text>
       </view>
       <view class="user-info">
-        <view class="username">{{loggedIn ? (userInfo.nickname || '微信用户') : '点击登录 / 注册'}}</view>
+        <view class="username">{{loggedIn ? (userInfo.nickname || '微信用户') : (isGuest ? '游客体验中' : '点击登录 / 注册')}}</view>
         <view class="user-level tag" wx:if="{{loggedIn}}">{{levelLabel}}</view>
-        <view class="user-level tag" wx:else>登录后同步学习记录</view>
+        <view class="user-level tag" wx:else>登录后可上传资料、同步学习记录</view>
       </view>
       <text class="edit-icon">✏️</text>
     </view>

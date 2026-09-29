@@ -12,6 +12,7 @@ class User(Base):
     nickname = Column(String(100), default="", comment="昵称")
     avatar = Column(String(500), default="", comment="头像 URL")
     is_admin = Column(Boolean, default=False)
+    is_guest = Column(Boolean, default=False, nullable=False, comment="是否为免授权游客账号（无微信身份）")
     is_active = Column(Boolean, default=True, nullable=False, comment="账号是否有效")
     token_version = Column(Integer, default=0, nullable=False, comment="服务端撤销登录态的版本号")
     created_at = Column(DateTime, server_default=func.now())

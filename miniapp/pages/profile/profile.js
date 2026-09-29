@@ -11,6 +11,7 @@ Page({
     stats: {},
     levelLabel: '初学者',
     loggedIn: false,
+    isGuest: false,
     statusBarHeight: 0,
   },
 
@@ -40,11 +41,13 @@ Page({
   onPullDownRefresh() { this._loadData(); wx.stopPullDownRefresh(); },
 
   async _loadData() {
+    const isGuest = app.isGuestUser();
     const userInfo = app.globalData.userInfo || wx.getStorageSync('userInfo') || {};
     this.setData({ userInfo });
 
     const uid = await getUserId();
-    this.setData({ loggedIn: !!uid });
+    // 游客会话不算「已登录」：不显示昵称/退出/注销，但统计照常展示
+    this.setData({ loggedIn: !!uid && !isGuest, isGuest });
     if (!uid) return;
     try {
       const stats = await request({ url: '/api/stats' });
@@ -59,9 +62,9 @@ Page({
     return '初学者';
   },
 
-  // 未登录时点击头像卡片进入登录页（用户主动触发），已登录则进入资料编辑
+  // 游客或未登录时点击头像卡片进入登录页（用户主动触发），正式账号则进入资料编辑
   goEditProfile() {
-    if (!app.isLoggedIn()) {
+    if (app.isGuestUser() || !app.isLoggedIn()) {
       wx.navigateTo({ url: '/pages/login/login' });
       return;
     }
@@ -80,11 +83,11 @@ Page({
   },
   goPrivacy() { wx.navigateTo({ url: '/pages/privacy/privacy' }); },
   goUpload() {
-    if (!app.isLoggedIn()) { app.promptLogin({ content: '上传资料并生成题库需要登录，是否立即微信登录？' }); return; }
+    if (app.isGuestUser() || !app.isLoggedIn()) { app.promptLogin({ content: '上传资料并生成题库需要登录，是否立即微信登录？' }); return; }
     wx.navigateTo({ url: '/pages/upload/upload' });
   },
   goManage() {
-    if (!app.isLoggedIn()) { app.promptLogin({ content: '题库管理需要登录，是否立即微信登录？' }); return; }
+    if (app.isGuestUser() || !app.isLoggedIn()) { app.promptLogin({ content: '题库管理需要登录，是否立即微信登录？' }); return; }
     wx.navigateTo({ url: '/pages/manage/manage' });
   },
   clearCache() {

@@ -3,6 +3,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+const GUEST_USER = { id: 50, nickname: '游客', avatar: '', is_admin: false, is_guest: true };
+const REAL_USER = { id: 7, nickname: '微信用户', avatar: '', is_admin: false, is_guest: false };
+
 function loadApp({ initialStorage = {}, handleRequest, platform = 'devtools', envVersion = 'develop' } = {}) {
   const storage = new Map(Object.entries(initialStorage));
   const calls = { login: 0, requests: [], relaunches: [], errors: [] };
@@ -52,50 +55,81 @@ function loadApp({ initialStorage = {}, handleRequest, platform = 'devtools', en
   return { app, calls, storage };
 }
 
-async function testFirstLaunchWaitsForOneTapLogin() {
-  let requestOptions;
+function respondGuest(options) {
+  options.success({
+    statusCode: 200,
+    data: { user: GUEST_USER, is_new: true, access_token: 'guest-token' },
+  });
+}
+
+function respondRealLogin(options) {
+  options.success({
+    statusCode: 200,
+    data: { user: REAL_USER, is_new: true, access_token: 'app-token' },
+  });
+}
+
+async function testFirstLaunchCreatesSilentGuestSession() {
+  let guestRequest;
+  let loginRequest;
   const fixture = loadApp({
     handleRequest(options) {
-      requestOptions = options;
-      options.success({
-        statusCode: 200,
-        data: {
-          user: { id: 7, nickname: '微信用户', avatar: '' },
-          is_new: true,
-          access_token: 'app-token',
-        },
-      });
+      if (options.url.endsWith('/api/auth/guest')) {
+        guestRequest = options;
+        respondGuest(options);
+        return;
+      }
+      if (options.url.endsWith('/api/auth/login')) {
+        loginRequest = options;
+        respondRealLogin(options);
+        return;
+      }
+      options.success({ statusCode: 404, data: {} });
     },
   });
 
   fixture.app.onLaunch();
   const restoredUser = await fixture.app.globalData.sessionRestorePromise;
 
-  assert.equal(restoredUser, null);
+  // 首次启动：静默创建游客会话，不弹授权、不调用 wx.login
+  assert.equal(restoredUser.id, GUEST_USER.id);
   assert.equal(fixture.calls.login, 0);
-  assert.equal(fixture.calls.requests.length, 0);
+  assert.equal(guestRequest.url, 'https://api.quizapp.chat/api/auth/guest');
+  assert.equal(guestRequest.method, 'POST');
+  assert.equal(fixture.app.isGuestUser(), true);
+  assert.equal(fixture.app.globalData.accessToken, 'guest-token');
 
+  // 游客点「微信一键登录」：携带游客 token 供服务端迁移数据
   const user = await fixture.app.wxLogin();
 
-  assert.equal(user.id, 7);
+  assert.equal(user.id, REAL_USER.id);
   assert.equal(fixture.calls.login, 1);
-  assert.equal(requestOptions.url, 'https://api.quizapp.chat/api/auth/login');
-  assert.equal(requestOptions.data.code, 'wx-one-time-code');
-  assert.equal(requestOptions.timeout, 15000);
+  assert.equal(loginRequest.data.code, 'wx-one-time-code');
+  assert.equal(loginRequest.timeout, 15000);
+  assert.equal(loginRequest.header.Authorization, 'Bearer guest-token');
   assert.equal(fixture.app.globalData.accessToken, 'app-token');
   assert.equal(fixture.app.globalData.isNewUser, true);
-  assert.equal(fixture.app.globalData.profileRequired, false);
+  assert.equal(fixture.app.isGuestUser(), false);
   assert.equal(fixture.storage.get('accessToken'), 'app-token');
 }
 
 async function testDevelopEnvironmentUsesProductionHttps() {
-  const fixture = loadApp();
+  const fixture = loadApp({
+    handleRequest(options) {
+      if (options.url.endsWith('/api/auth/guest')) {
+        respondGuest(options);
+        return;
+      }
+      options.success({ statusCode: 404, data: {} });
+    },
+  });
 
   fixture.app.onLaunch();
   await fixture.app.globalData.sessionRestorePromise;
 
   assert.equal(fixture.app.globalData.baseUrl, 'https://api.quizapp.chat');
-  assert.equal(fixture.calls.requests.length, 0);
+  assert.equal(fixture.calls.requests.length, 1);
+  assert.equal(fixture.calls.requests[0].url, 'https://api.quizapp.chat/api/auth/guest');
 }
 
 async function testLoginReportsRequestDomainFailure() {
@@ -110,13 +144,15 @@ async function testLoginReportsRequestDomainFailure() {
   });
 
   fixture.app.onLaunch();
-  await fixture.app.globalData.sessionRestorePromise;
+  // 游客创建失败（域名未配置）时静默降级，不报错弹窗
+  const restoredUser = await fixture.app.globalData.sessionRestorePromise;
+  assert.equal(restoredUser, null);
 
   await assert.rejects(
     fixture.app.wxLogin(),
     /API 域名未加入微信 request 合法域名/,
   );
-  assert.equal(fixture.calls.requests[0].timeout, 15000);
+  assert.equal(fixture.calls.requests[1].timeout, 15000);
   assert.equal(fixture.calls.errors.length, 1);
   assert.equal(fixture.calls.errors[0][1].errno, 600001);
 }
@@ -144,13 +180,13 @@ async function testLoginReportsAbortedConnection() {
 async function testCachedSessionIsVerifiedWithoutWxLogin() {
   const fixture = loadApp({
     initialStorage: {
-      userInfo: { id: 3, nickname: '旧昵称', avatar: '' },
+      userInfo: { id: 3, nickname: '旧昵称', avatar: '', is_guest: false },
       accessToken: 'cached-token',
     },
     handleRequest(options) {
       options.success({
         statusCode: 200,
-        data: { id: 3, nickname: '服务端昵称', avatar: '', is_admin: false },
+        data: { id: 3, nickname: '服务端昵称', avatar: '', is_admin: false, is_guest: false },
       });
     },
   });
@@ -159,16 +195,18 @@ async function testCachedSessionIsVerifiedWithoutWxLogin() {
   const user = await fixture.app.globalData.sessionRestorePromise;
 
   assert.equal(user.nickname, '服务端昵称');
+  assert.equal(fixture.app.isGuestUser(), false);
   assert.equal(fixture.app.globalData.profileRequired, false);
   assert.equal(fixture.calls.login, 0);
   assert.equal(fixture.calls.requests.length, 1);
   assert.equal(fixture.calls.requests[0].header.Authorization, 'Bearer cached-token');
 }
 
-async function testExpiredCachedSessionWaitsForOneTapLogin() {
+async function testExpiredCachedSessionRecoversAsGuest() {
+  let guestRequest;
   const fixture = loadApp({
     initialStorage: {
-      userInfo: { id: 3, nickname: '旧昵称', avatar: '' },
+      userInfo: { id: 3, nickname: '旧昵称', avatar: '', is_guest: false },
       accessToken: 'expired-token',
     },
     handleRequest(options) {
@@ -176,61 +214,69 @@ async function testExpiredCachedSessionWaitsForOneTapLogin() {
         options.success({ statusCode: 401, data: { detail: 'expired' } });
         return;
       }
-      options.success({
-        statusCode: 200,
-        data: {
-          user: { id: 3, nickname: '新会话', avatar: '' },
-          is_new: false,
-          access_token: 'renewed-token',
-        },
-      });
+      if (options.url.endsWith('/api/auth/guest')) {
+        guestRequest = options;
+        respondGuest(options);
+        return;
+      }
+      if (options.url.endsWith('/api/auth/login')) {
+        respondRealLogin(options);
+        return;
+      }
+      options.success({ statusCode: 404, data: {} });
     },
   });
 
   fixture.app.onLaunch();
   const restoredUser = await fixture.app.globalData.sessionRestorePromise;
 
-  assert.equal(restoredUser, null);
+  // 会话过期：不再停在「未登录」，而是静默重建游客会话
+  assert.equal(restoredUser.id, GUEST_USER.id);
   assert.equal(fixture.calls.login, 0);
-  assert.equal(fixture.calls.requests.length, 1);
+  assert.equal(fixture.calls.requests.length, 2);
+  assert.equal(guestRequest.url, 'https://api.quizapp.chat/api/auth/guest');
 
   const user = await fixture.app.wxLogin();
 
-  assert.equal(user.nickname, '新会话');
+  assert.equal(user.nickname, '微信用户');
   assert.equal(fixture.calls.login, 1);
-  assert.equal(fixture.calls.requests.length, 2);
-  assert.equal(fixture.storage.get('accessToken'), 'renewed-token');
+  assert.equal(fixture.calls.requests.length, 3);
+  assert.equal(fixture.storage.get('accessToken'), 'app-token');
+  assert.equal(fixture.app.isGuestUser(), false);
 }
 
-async function testLogoutRequiresManualLogin() {
+async function testLogoutReturnsToGuestSession() {
   const fixture = loadApp({
-    handleRequest() {
-      throw new Error('logout launch must not request a new session');
+    handleRequest(options) {
+      if (options.url.endsWith('/api/auth/guest')) {
+        respondGuest(options);
+        return;
+      }
+      throw new Error('unexpected request: ' + options.url);
     },
   });
-  fixture.app._setSession({ id: 9, nickname: '用户' }, 'token');
+  fixture.app._setSession({ id: 9, nickname: '用户', is_guest: false }, 'token');
   fixture.app.logout();
 
-  assert.equal(fixture.storage.get('manualLoginRequired'), true);
-  // 退出后回到首页以游客身份浏览，不再强制跳登录页（审核要求：登录须由用户主动触发）
+  // 退出后回到首页，静默转为新的游客会话继续体验
   assert.equal(fixture.calls.relaunches[0], '/pages/index/index');
 
   fixture.app.onLaunch();
   const user = await fixture.app.globalData.sessionRestorePromise;
-  assert.equal(user, null);
+  assert.equal(user.id, GUEST_USER.id);
+  assert.equal(fixture.app.isGuestUser(), true);
   assert.equal(fixture.calls.login, 0);
-  assert.equal(fixture.calls.requests.length, 1);
   assert.equal(fixture.calls.requests[0].url, 'https://api.quizapp.chat/api/auth/logout');
 }
 
 (async () => {
-  await testFirstLaunchWaitsForOneTapLogin();
+  await testFirstLaunchCreatesSilentGuestSession();
   await testDevelopEnvironmentUsesProductionHttps();
   await testLoginReportsRequestDomainFailure();
   await testLoginReportsAbortedConnection();
   await testCachedSessionIsVerifiedWithoutWxLogin();
-  await testExpiredCachedSessionWaitsForOneTapLogin();
-  await testLogoutRequiresManualLogin();
+  await testExpiredCachedSessionRecoversAsGuest();
+  await testLogoutReturnsToGuestSession();
   console.log('miniapp auth tests passed');
 })().catch(error => {
   console.error(error);

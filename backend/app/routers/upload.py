@@ -237,6 +237,8 @@ async def upload_file(
     db: Session = Depends(get_db),
 ):
     """上传 PDF/DOCX 文档，异步生成题库"""
+    if current_user.is_guest:
+        raise HTTPException(403, "请先登录后再上传资料生成题库")
     _ensure_generation_capacity(db, current_user, check_frequency=False)
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
@@ -321,6 +323,8 @@ async def upload_url(
     db: Session = Depends(get_db),
 ):
     """提交 URL，爬取页面内容并生成题库"""
+    if current_user.is_guest:
+        raise HTTPException(403, "请先登录后再上传资料生成题库")
     url = await asyncio.to_thread(_validate_source_url, data.url)
     _ensure_generation_capacity(db, current_user)
 

@@ -344,35 +344,45 @@ async function testMemorizeModeLoadsPastOneHundredQuestions() {
 async function testGuestsBrowseWithoutForcedLogin() {
   const navigations = [];
   const prompts = [];
+  // 游客会话语义：有会话（isLoggedIn=true）但 isGuestUser()=true
   const appMock = {
     globalData: {},
-    isLoggedIn: () => false,
+    isLoggedIn: () => true,
+    isGuestUser: () => true,
     promptLogin: options => {
       prompts.push((options && options.content) || '');
       return Promise.resolve(true);
     },
   };
 
-  // 「我的」页：未登录时功能入口只做主动登录引导，不自动跳转
+  // 「我的」页：游客可看统计；上传/管理入口只做主动登录引导，不自动跳转
   const profilePage = loadPage('pages/profile/profile.js', {
     app: appMock,
     requestModule: {
-      request: async () => { throw new Error('guest must not request'); },
-      getUserId: async () => null,
+      request: async () => ({ total_answered: 0 }),
+      getUserId: async () => 50,
     },
     wx: { navigateTo: options => navigations.push(options.url) },
   });
 
   profilePage.goUpload();
-  profilePage.goReport();
   profilePage.goManage();
-  assert.equal(navigations.length, 0, '游客态点击功能入口不得直接跳转页面');
-  assert.equal(prompts.length, 3, '未登录时功能入口应转为主动登录引导');
+  assert.equal(prompts.length, 2, '游客点击上传/管理应转为主动登录引导');
+  profilePage.goReport();
+  assert.deepEqual(
+    navigations,
+    ['/pages/report/report'],
+    '游客可查看学习报告（体验功能）',
+  );
 
   profilePage.goEditProfile();
-  assert.deepEqual(navigations, ['/pages/login/login'], '头像卡片在游客态应进入登录页');
+  assert.equal(
+    navigations[navigations.length - 1],
+    '/pages/login/login',
+    '头像卡片在游客态应进入登录页',
+  );
 
-  // 首页：游客态不请求接口、不跳转
+  // 首页：无会话（离线）时不请求接口、不跳转
   let indexRequests = 0;
   const indexPage = loadPage('pages/index/index.js', {
     app: appMock,
@@ -385,12 +395,29 @@ async function testGuestsBrowseWithoutForcedLogin() {
 
   await indexPage._refreshForSession();
   assert.equal(indexPage.data.loggedIn, false);
-  assert.equal(indexRequests, 0, '游客态首页不得请求接口');
+  assert.equal(indexRequests, 0, '离线时首页不得请求接口');
   assert.equal(indexPage.data.banks.length, 0);
   assert.equal(indexPage.data.dailyQuestion, null);
 
   indexPage.goLogin();
   assert.equal(navigations[navigations.length - 1], '/pages/login/login');
+
+  // 首页：游客会话正常拉取题库（示例题库可浏览）
+  const guestIndexPage = loadPage('pages/index/index.js', {
+    app: appMock,
+    requestModule: {
+      request: async () => [],
+      getUserId: async () => 50,
+    },
+    wx: { navigateTo: options => navigations.push(options.url) },
+  });
+  await guestIndexPage._refreshForSession();
+  assert.equal(guestIndexPage.data.loggedIn, true);
+  assert.equal(guestIndexPage.data.isGuest, true, '游客会话应展示游客横幅');
+
+  // 游客点「导入新资料」→ 主动登录引导，不得直接跳转
+  guestIndexPage.goUpload();
+  assert.equal(prompts.length, 3, '游客上传入口应转为主动登录引导');
 }
 
 async function testSessionInvalidationSyncsPagesToGuest() {
