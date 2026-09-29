@@ -10,12 +10,25 @@ Page({
     userInfo: {},
     stats: {},
     levelLabel: '初学者',
+    loggedIn: false,
     statusBarHeight: 0,
   },
 
   onLoad() {
     const { statusBarHeight } = wx.getWindowInfo();
     this.setData({ statusBarHeight });
+    // 会话失效时同步回游客态，避免继续展示已登录界面与陈旧统计
+    this._unsubscribeSession = typeof app.onSessionInvalid === 'function'
+      ? app.onSessionInvalid(() => this._resetToGuest())
+      : null;
+  },
+
+  onUnload() {
+    if (this._unsubscribeSession) this._unsubscribeSession();
+  },
+
+  _resetToGuest() {
+    this.setData({ loggedIn: false, userInfo: {}, stats: {}, levelLabel: '初学者' });
   },
   onShow() {
     // 更新自定义 tabBar 选中状态
@@ -31,6 +44,7 @@ Page({
     this.setData({ userInfo });
 
     const uid = await getUserId();
+    this.setData({ loggedIn: !!uid });
     if (!uid) return;
     try {
       const stats = await request({ url: '/api/stats' });
@@ -45,7 +59,14 @@ Page({
     return '初学者';
   },
 
-  goEditProfile() { wx.navigateTo({ url: '/pages/login/login?edit=1' }); },
+  // 未登录时点击头像卡片进入登录页（用户主动触发），已登录则进入资料编辑
+  goEditProfile() {
+    if (!app.isLoggedIn()) {
+      wx.navigateTo({ url: '/pages/login/login' });
+      return;
+    }
+    wx.navigateTo({ url: '/pages/login/login?edit=1' });
+  },
   goBanks() { wx.switchTab({ url: '/pages/index/index' }); },
   _goReviewTab(tab) {
     wx.setStorageSync('wrongBookActiveTab', tab);
@@ -53,10 +74,19 @@ Page({
   },
   goWrongBook() { this._goReviewTab('wrong'); },
   goStarred() { this._goReviewTab('star'); },
-  goReport() { wx.navigateTo({ url: '/pages/report/report' }); },
+  goReport() {
+    if (!app.isLoggedIn()) { app.promptLogin({ content: '查看学习报告需要登录，是否立即微信登录？' }); return; }
+    wx.navigateTo({ url: '/pages/report/report' });
+  },
   goPrivacy() { wx.navigateTo({ url: '/pages/privacy/privacy' }); },
-  goUpload()    { wx.navigateTo({ url: '/pages/upload/upload' }); },
-  goManage()    { wx.navigateTo({ url: '/pages/manage/manage' }); },
+  goUpload() {
+    if (!app.isLoggedIn()) { app.promptLogin({ content: '上传资料并生成题库需要登录，是否立即微信登录？' }); return; }
+    wx.navigateTo({ url: '/pages/upload/upload' });
+  },
+  goManage() {
+    if (!app.isLoggedIn()) { app.promptLogin({ content: '题库管理需要登录，是否立即微信登录？' }); return; }
+    wx.navigateTo({ url: '/pages/manage/manage' });
+  },
   clearCache() {
     wx.showModal({
       title: '清理缓存',
@@ -95,7 +125,8 @@ Page({
           await request({ url: '/api/auth/account', method: 'DELETE' });
           app.clearSession();
           wx.setStorageSync('manualLoginRequired', true);
-          wx.reLaunch({ url: '/pages/login/login' });
+          // 注销后回到首页以游客身份浏览，不强制进入登录页
+          wx.reLaunch({ url: '/pages/index/index' });
         } catch {}
       },
     });

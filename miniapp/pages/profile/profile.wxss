@@ -1,4 +1,4 @@
-.container { background: #F5F6FA; min-height: 100vh; padding-bottom: 60rpx; }
+.container { background: #F5F6FA; min-height: 100vh; padding-bottom: calc(140rpx + env(safe-area-inset-bottom)); }
 
 /* 用户卡片 */
 .user-card {

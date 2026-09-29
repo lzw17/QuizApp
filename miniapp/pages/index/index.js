@@ -16,6 +16,7 @@ Page({
     dailyLoading: false,
     loading: false,
     userId: null,
+    loggedIn: false,
     page: 0,
     hasMore: true,
     deletingBankId: null,
@@ -27,6 +28,29 @@ Page({
   onLoad() {
     const { statusBarHeight } = wx.getWindowInfo();
     this.setData({ statusBarHeight, userId: app.globalData.userId });
+    // 会话失效（401 或被退出）时立刻同步为游客态，避免继续展示陈旧数据
+    this._unsubscribeSession = typeof app.onSessionInvalid === 'function'
+      ? app.onSessionInvalid(() => this._resetToGuest())
+      : null;
+  },
+
+  onUnload() {
+    if (this._unsubscribeSession) this._unsubscribeSession();
+  },
+
+  _resetToGuest() {
+    this.setData({
+      loggedIn: false,
+      userId: null,
+      banks: [],
+      categories: [],
+      stats: {},
+      dailyQuestion: null,
+      activeCategory: '',
+      loading: false,
+      page: 0,
+      hasMore: false,
+    });
   },
 
   onShow() {
@@ -35,15 +59,34 @@ Page({
       this.getTabBar().setData({ selected: 0 });
     }
     // 每次显示刷新（上传完成后返回）
-    this._loadBanks(true);
-    this._loadCategories();
-    this._loadStats();
-    this._loadDailyQuestion();
+    this._refreshForSession();
   },
 
   onPullDownRefresh() {
-    this._loadBanks(true);
-    wx.stopPullDownRefresh();
+    this._refreshForSession().finally(() => wx.stopPullDownRefresh());
+  },
+
+  /**
+   * 游客可以直接浏览首页，不触发任何登录跳转；
+   * 只有已登录时才拉取题库/统计/每日一题。
+   */
+  async _refreshForSession() {
+    const uid = await getUserId();
+    const loggedIn = !!uid;
+    this.setData({ loggedIn, userId: uid || null });
+    if (!loggedIn) {
+      this.setData({
+        banks: [], categories: [], stats: {}, dailyQuestion: null,
+        loading: false, hasMore: false, page: 0,
+      });
+      return;
+    }
+    await Promise.all([
+      this._loadBanks(true),
+      this._loadCategories(),
+      this._loadStats(),
+      this._loadDailyQuestion(),
+    ]);
   },
 
   onReachBottom() {
@@ -92,12 +135,25 @@ Page({
   },
 
   filterCategory(e) {
+    if (!this.data.loggedIn) return;
     const category = e.currentTarget.dataset.category;
     this.setData({ activeCategory: category }, () => this._loadBanks(true));
   },
 
   goUpload() {
+    if (!this.data.loggedIn) {
+      app.promptLogin({ content: '上传资料并生成题库需要登录，是否立即微信登录？' });
+      return;
+    }
     wx.navigateTo({ url: '/pages/upload/upload' });
+  },
+
+  goLogin() {
+    wx.navigateTo({ url: '/pages/login/login' });
+  },
+
+  goPrivacy() {
+    wx.navigateTo({ url: '/pages/privacy/privacy' });
   },
 
   goDetail(e) {

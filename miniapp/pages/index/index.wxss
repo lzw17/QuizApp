@@ -1,4 +1,4 @@
-.container { padding: 0 0 40rpx; }
+.container { padding: 0 0 calc(140rpx + env(safe-area-inset-bottom)); }
 
 /* 顶部 Header */
 .header {
@@ -126,6 +126,70 @@
 .bank-delete-action.loading { opacity: 0.45; }
 .bank-delete-icon { width: 26rpx; height: 26rpx; }
 .bank-arrow { width: 20rpx; font-size: 36rpx; color: #C8CDD7; text-align: right; }
+
+/* 游客引导卡（未登录时的可浏览内容） */
+.guest-intro {
+  margin: 24rpx;
+  padding: 32rpx 30rpx 36rpx;
+  background: linear-gradient(160deg, #FFFFFF 0%, #F4F7FF 60%, #EEF1FF 100%);
+  border: 1rpx solid #E3E9FB;
+  border-radius: 24rpx;
+  position: relative;
+  overflow: hidden;
+}
+/* 右上角淡蓝紫装饰光斑，呼应顶部 hero */
+.guest-intro::after {
+  content: '';
+  position: absolute;
+  top: -70rpx;
+  right: -60rpx;
+  width: 220rpx;
+  height: 220rpx;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(112, 120, 255, 0.10) 0%, rgba(112, 120, 255, 0) 70%);
+  pointer-events: none;
+}
+.guest-badge {
+  display: inline-block;
+  padding: 6rpx 18rpx;
+  font-size: 22rpx;
+  color: #4F7EFF;
+  background: rgba(79, 126, 255, 0.10);
+  border-radius: 999rpx;
+}
+.guest-title {
+  margin-top: 18rpx;
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #1F2430;
+}
+.guest-sub { margin-top: 10rpx; font-size: 25rpx; color: #8A93A6; line-height: 1.5; }
+.guest-features { margin-top: 26rpx; }
+.guest-feature {
+  display: flex;
+  align-items: flex-start;
+  padding: 16rpx 0;
+}
+.guest-chip {
+  flex-shrink: 0;
+  width: 44rpx;
+  height: 44rpx;
+  margin-right: 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: #FFFFFF;
+  background: linear-gradient(135deg, #4F7EFF 0%, #7B5CFF 100%);
+  border-radius: 14rpx;
+  box-shadow: 0 4rpx 10rpx rgba(79, 126, 255, 0.25);
+}
+.guest-feature-body { flex: 1; min-width: 0; }
+.guest-feature-name { display: block; font-size: 29rpx; font-weight: 600; color: #1F2430; }
+.guest-feature-desc { display: block; margin-top: 4rpx; font-size: 24rpx; color: #8A93A6; line-height: 1.5; }
+.guest-login-btn { margin-top: 28rpx; }
+.guest-privacy { margin-top: 22rpx; text-align: center; font-size: 24rpx; color: #9AA3B5; }
 
 /* 加载 */
 .load-more { display: flex; align-items: center; justify-content: center; padding: 30rpx; color: #999; font-size: 26rpx; gap: 12rpx; }

@@ -164,6 +164,14 @@
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* 加载失败态：给出重试与返回两个出口 */
+.load-error-back {
+  margin-top: 24rpx;
+  font-size: 26rpx;
+  color: #8A93A6;
+  padding: 12rpx 24rpx;
+}
+
 /* 完成页 */
 .done-page {
   height: 100vh;

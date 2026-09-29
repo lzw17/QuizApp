@@ -110,7 +110,8 @@
   left: 0;
   right: 0;
   background: #fff;
-  padding: 20rpx 30rpx;
+  /* 注意：不能用 padding 简写后再叠加 .safe-bottom —— 同等特异性下页面样式后加载会覆盖掉环境变量 */
+  padding: 20rpx 30rpx calc(20rpx + env(safe-area-inset-bottom));
   box-shadow: 0 -4rpx 20rpx rgba(0,0,0,0.08);
 }
 .submit-btn { width: 100%; }

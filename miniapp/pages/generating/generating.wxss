@@ -4,6 +4,23 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+}
+/* 常驻返回按钮（自定义导航栏下唯一出口） */
+.nav-back {
+  position: fixed;
+  left: 24rpx;
+  top: calc(env(safe-area-inset-top) + 20rpx);
+  width: 64rpx;
+  height: 64rpx;
+  line-height: 60rpx;
+  text-align: center;
+  font-size: 44rpx;
+  color: #4F7EFF;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  box-shadow: 0 4rpx 16rpx rgba(79, 126, 255, 0.18);
+  z-index: 10;
 }
 .content {
   display: flex;

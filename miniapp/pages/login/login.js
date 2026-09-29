@@ -29,7 +29,8 @@ Page({
 
     if (isEdit) {
       if (!user) {
-        wx.reLaunch({ url: '/pages/login/login' });
+        // 会话失效时不再自杀式跳回登录页，改回首页以游客身份浏览
+        wx.switchTab({ url: '/pages/index/index' });
         return;
       }
       const canUse = typeof wx.canIUse === 'function';
@@ -74,6 +75,16 @@ Page({
 
   _continueAfterLogin() {
     wx.reLaunch({ url: '/pages/index/index' });
+  },
+
+  /** 用户选择暂不登录，返回继续浏览（首页无需登录即可查看） */
+  onSkip() {
+    const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : [];
+    if (pages.length > 1) {
+      wx.navigateBack();
+      return;
+    }
+    wx.switchTab({ url: '/pages/index/index' });
   },
 
   onChooseAvatar(e) {

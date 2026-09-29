@@ -50,7 +50,13 @@
       <view class="loading-more" wx:if="{{wrongLoadingMore}}">正在加载...</view>
     </view>
     <view class="empty-state" wx:else>
-      <text> 暂无错题，继续保持！</text>
+      <block wx:if="{{loggedIn}}">
+        <text> 暂无错题，继续保持！</text>
+      </block>
+      <block wx:else>
+        <text>登录后，练习中的错题会自动归档到这里</text>
+        <button class="btn-primary" style="margin-top:32rpx;" bindtap="goLogin">微信一键登录</button>
+      </block>
     </view>
   </view>
 

@@ -102,6 +102,9 @@ Page({
   },
 
   async startExam() {
+    // 防重入：快速双击会发出两次 /api/exam/start，先生成的会话会成为孤儿
+    if (this._startingExam) return;
+    this._startingExam = true;
     wx.showLoading({ title: '出题中...' });
     try {
       const exam = await request({
@@ -140,6 +143,7 @@ Page({
       this._startTimer();
     } catch {
     } finally {
+      this._startingExam = false;
       wx.hideLoading();
     }
   },

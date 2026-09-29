@@ -51,7 +51,13 @@
   </view>
 </view>
 
-<view class="loading-page" wx:if="{{loading}}">
+<view class="loading-page" wx:if="{{loading && !loadError}}">
   <view class="loading-dot"></view>
   <text>正在生成报告...</text>
+</view>
+
+<!-- 加载失败（必须有明确出口，避免白屏） -->
+<view class="loading-page" wx:if="{{loadError}}">
+  <text>{{loadError}}</text>
+  <button class="btn-primary" style="width:320rpx;" bindtap="retryLoad">重新加载</button>
 </view>

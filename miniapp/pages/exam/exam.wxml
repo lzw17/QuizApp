@@ -73,7 +73,7 @@
   </view>
 
   <!-- 底部导航 -->
-  <view class="exam-nav safe-bottom">
+  <view class="exam-nav">
     <button class="nav-btn" bindtap="prevQ" disabled="{{currentIndex === 0}}">‹ 上一题</button>
     <button class="nav-btn submit-btn" bindtap="confirmSubmit" disabled="{{submitting}}">{{submitting ? '提交中...' : '交卷'}}</button>
     <button class="nav-btn" bindtap="nextQ" disabled="{{currentIndex === questionCount - 1}}">下一题 ›</button>

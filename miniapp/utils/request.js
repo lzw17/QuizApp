@@ -4,12 +4,15 @@ function request(options) {
   return requireSession().then(() => _request(options, false));
 }
 
+// 需要登录态的请求守卫。
+// 注意：这里只做静默拒绝，绝不自动跳转登录页——小程序审核要求用户先浏览体验，
+// 再由用户主动选择登录。需要引导登录的入口请调用 app.promptLogin()。
 function requireSession() {
   return app.ensureLogin({ autoLogin: false }).then(user => {
     if (!user || !app.globalData.accessToken) {
-      wx.showToast({ title: '请先登录', icon: 'none' });
-      setTimeout(() => wx.reLaunch({ url: '/pages/login/login' }), 300);
-      throw new Error('请先登录');
+      const error = new Error('请先登录');
+      error.needLogin = true;
+      throw error;
     }
     return user;
   });
@@ -32,10 +35,12 @@ function _request(options, retried) {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           resolve(res.data);
         } else if (res.statusCode === 401 && token && !retried) {
+          // 登录态失效：清会话并静默降级为游客态，由页面给出登录入口（不自动跳登录页）
           app.clearSession();
           wx.showToast({ title: '登录已失效，请重新登录', icon: 'none' });
-          setTimeout(() => wx.reLaunch({ url: '/pages/login/login' }), 300);
-          reject(new Error('登录已失效，请重新登录'));
+          const authError = new Error('登录已失效，请重新登录');
+          authError.needLogin = true;
+          reject(authError);
         } else {
           const msg = (res.data && res.data.detail) || `请求失败 (${res.statusCode})`;
           if (!options.silent) wx.showToast({ title: msg, icon: 'none' });
@@ -121,10 +126,12 @@ function _uploadFile(filePath, formData, options, retried) {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           resolve(data);
         } else if (res.statusCode === 401 && token && !retried) {
+          // 登录态失效：清会话并静默降级为游客态，由页面给出登录入口（不自动跳登录页）
           app.clearSession();
           wx.showToast({ title: '登录已失效，请重新登录', icon: 'none' });
-          setTimeout(() => wx.reLaunch({ url: '/pages/login/login' }), 300);
-          reject(new Error('登录已失效，请重新登录'));
+          const authError = new Error('登录已失效，请重新登录');
+          authError.needLogin = true;
+          reject(authError);
         } else {
           const msg = (data && data.detail) || `上传失败 (${res.statusCode})`;
           wx.showToast({ title: msg, icon: 'none' });

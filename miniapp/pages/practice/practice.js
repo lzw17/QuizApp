@@ -27,6 +27,8 @@ Page({
     isStarred: false,
     starredIds: [],
     loading: true,
+    loadError: '',
+    loadMoreError: false,
     done: false,
     sessionTotal: 0,
     sessionCorrect: 0,
@@ -74,7 +76,9 @@ Page({
       || this.data.mode === 'starred'
       || this.data.mode === 'memorize';
     if (isMutableReview && !append) this._reviewCursorId = null;
-    this.setData(append ? { loadingMore: true } : { loading: true, startSkip: skip });
+    this.setData(append
+      ? { loadingMore: true, loadMoreError: false }
+      : { loading: true, startSkip: skip, loadError: '' });
     try {
       if (this.data.mode === 'memorize') {
         const bankQuery = this.data.bankId ? `&bank_id=${this.data.bankId}` : '';
@@ -164,9 +168,30 @@ Page({
       } else {
         this.setData({ done: true, loading: false });
       }
-    } catch {
-      this.setData({ loading: false, loadingMore: false });
+    } catch (error) {
+      // 加载失败必须落到明确的错误态，否则模板三个分支（题目/加载中/完成）都不成立 → 白屏。
+      // 分页失败时保留已加载的题目，只标记 loadMoreError，由 nextQuestion 决定是否重试。
+      if (append) {
+        this.setData({ loadingMore: false, loadMoreError: true });
+      } else {
+        this.setData({
+          loading: false,
+          loadError: this._describeLoadError(error),
+        });
+      }
     }
+  },
+
+  _describeLoadError(error) {
+    if (error && error.needLogin) return '登录后即可开始练习';
+    const msg = String((error && error.message) || '');
+    if (/网络|超时|连接/.test(msg)) return '网络异常，题目加载失败';
+    return '题目加载失败，请稍后重试';
+  },
+
+  /** 首次加载失败后的手动重试入口 */
+  retryLoad() {
+    this._loadQuestions(this.data.startSkip || 0);
   },
 
   async _loadProgress() {
@@ -176,7 +201,8 @@ Page({
       if (!this.data.bankId) {
         const starredIds = [];
         const pageSize = 100;
-        for (let skip = 0; ; skip += pageSize) {
+        // 上界看护：服务端若忽略 skip 参数，避免死循环无限发请求（与 wrong-book/manage 一致）
+        for (let skip = 0; skip < 10000; skip += pageSize) {
           const page = await request({
             url: `/api/questions?mode=starred&skip=${skip}&limit=${pageSize}`,
           });
@@ -311,8 +337,14 @@ Page({
     if (next >= this.data.questions.length) {
       if (this.data.hasMore) {
         await this._loadQuestions(this.data.startSkip + this.data.questions.length, true);
-        if (this.data.questions.length > next) this._showQuestion(next);
-        else this.setData({ done: true });
+        if (this.data.questions.length > next) {
+          this._showQuestion(next);
+        } else if (this.data.loadMoreError) {
+          // 分页请求失败 ≠ 题目做完，保留当前进度并提示重试，避免误报「练习完成」
+          wx.showToast({ title: '加载失败，请检查网络后重试', icon: 'none' });
+        } else {
+          this.setData({ done: true });
+        }
       } else {
         this.setData({ done: true });
       }

@@ -212,7 +212,8 @@ async function testLogoutRequiresManualLogin() {
   fixture.app.logout();
 
   assert.equal(fixture.storage.get('manualLoginRequired'), true);
-  assert.equal(fixture.calls.relaunches[0], '/pages/login/login');
+  // 退出后回到首页以游客身份浏览，不再强制跳登录页（审核要求：登录须由用户主动触发）
+  assert.equal(fixture.calls.relaunches[0], '/pages/index/index');
 
   fixture.app.onLaunch();
   const user = await fixture.app.globalData.sessionRestorePromise;

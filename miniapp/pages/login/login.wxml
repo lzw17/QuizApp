@@ -57,6 +57,7 @@
     </button>
 
     <text class="privacy-tip">仅用于识别账号和同步学习记录</text>
+    <view class="skip-login" bindtap="onSkip">暂不登录，先随便看看</view>
   </view>
 
   <view class="sheet" wx:elif="{{stage === 'setup'}}">

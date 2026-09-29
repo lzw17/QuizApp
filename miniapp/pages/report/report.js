@@ -8,6 +8,7 @@ Page({
   data: {
     loading: true,
     report: null,
+    loadError: '',
   },
 
   onLoad() {
@@ -23,7 +24,7 @@ Page({
   },
 
   async _loadReport() {
-    this.setData({ loading: true });
+    this.setData({ loading: true, loadError: '' });
     try {
       const report = await request({ url: '/api/study-report?days=7' });
       const maxTotal = Math.max(1, ...(report.daily || []).map(item => item.total));
@@ -35,8 +36,16 @@ Page({
       }));
       const todayTotal = daily.length ? daily[daily.length - 1].total : 0;
       this.setData({ report: { ...report, daily, todayTotal }, loading: false });
-    } catch {
-      this.setData({ loading: false });
+    } catch (error) {
+      // 失败必须落到明确的错误态，否则模板两个分支（report / loading）都不成立 → 白屏
+      this.setData({
+        loading: false,
+        loadError: error && error.needLogin ? '登录后即可查看学习报告' : '报告加载失败，请稍后重试',
+      });
     }
+  },
+
+  retryLoad() {
+    this._loadReport();
   },
 });

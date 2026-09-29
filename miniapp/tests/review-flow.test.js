@@ -141,7 +141,7 @@ function testProfileStatsNavigateToExpectedPages() {
   const pageNavigations = [];
   const reviewTabs = [];
   const page = loadPage('pages/profile/profile.js', {
-    app: { globalData: {} },
+    app: { globalData: {}, isLoggedIn: () => true, promptLogin: async () => true },
     requestModule: { request: async () => ({}), getUserId: async () => 1 },
     wx: {
       switchTab: options => tabNavigations.push(options.url),
@@ -341,17 +341,157 @@ async function testMemorizeModeLoadsPastOneHundredQuestions() {
   assert.equal(calls.some(url => url.includes('source=starred&skip=100')), false);
 }
 
+async function testGuestsBrowseWithoutForcedLogin() {
+  const navigations = [];
+  const prompts = [];
+  const appMock = {
+    globalData: {},
+    isLoggedIn: () => false,
+    promptLogin: options => {
+      prompts.push((options && options.content) || '');
+      return Promise.resolve(true);
+    },
+  };
+
+  // 「我的」页：未登录时功能入口只做主动登录引导，不自动跳转
+  const profilePage = loadPage('pages/profile/profile.js', {
+    app: appMock,
+    requestModule: {
+      request: async () => { throw new Error('guest must not request'); },
+      getUserId: async () => null,
+    },
+    wx: { navigateTo: options => navigations.push(options.url) },
+  });
+
+  profilePage.goUpload();
+  profilePage.goReport();
+  profilePage.goManage();
+  assert.equal(navigations.length, 0, '游客态点击功能入口不得直接跳转页面');
+  assert.equal(prompts.length, 3, '未登录时功能入口应转为主动登录引导');
+
+  profilePage.goEditProfile();
+  assert.deepEqual(navigations, ['/pages/login/login'], '头像卡片在游客态应进入登录页');
+
+  // 首页：游客态不请求接口、不跳转
+  let indexRequests = 0;
+  const indexPage = loadPage('pages/index/index.js', {
+    app: appMock,
+    requestModule: {
+      request: async () => { indexRequests += 1; return []; },
+      getUserId: async () => null,
+    },
+    wx: { navigateTo: options => navigations.push(options.url) },
+  });
+
+  await indexPage._refreshForSession();
+  assert.equal(indexPage.data.loggedIn, false);
+  assert.equal(indexRequests, 0, '游客态首页不得请求接口');
+  assert.equal(indexPage.data.banks.length, 0);
+  assert.equal(indexPage.data.dailyQuestion, null);
+
+  indexPage.goLogin();
+  assert.equal(navigations[navigations.length - 1], '/pages/login/login');
+}
+
+async function testSessionInvalidationSyncsPagesToGuest() {
+  const listeners = [];
+  const appMock = {
+    globalData: {},
+    isLoggedIn: () => true,
+    onSessionInvalid: listener => {
+      listeners.push(listener);
+      return () => {};
+    },
+  };
+  const wxMock = { getWindowInfo: () => ({ statusBarHeight: 20 }) };
+
+  const profilePage = loadPage('pages/profile/profile.js', {
+    app: appMock,
+    requestModule: { request: async () => ({}), getUserId: async () => 1 },
+    wx: wxMock,
+  });
+  profilePage.onLoad();
+  profilePage.setData({ loggedIn: true, stats: { total_answered: 42 } });
+
+  const indexPage = loadPage('pages/index/index.js', {
+    app: appMock,
+    requestModule: { request: async () => [], getUserId: async () => 1 },
+    wx: wxMock,
+  });
+  indexPage.onLoad();
+  indexPage.setData({ loggedIn: true, userId: 1, banks: [{ id: 1 }], stats: { total_answered: 1 } });
+
+  assert.equal(listeners.length, 2, '首页与「我的」都应订阅会话失效事件');
+
+  listeners.forEach(listener => listener());
+
+  assert.equal(profilePage.data.loggedIn, false, '会话失效后「我的」页必须回落到游客态');
+  assert.equal(Object.keys(profilePage.data.stats).length, 0, '会话失效后不得继续展示旧统计');
+  assert.equal(indexPage.data.loggedIn, false, '会话失效后首页必须回落到游客态');
+  assert.equal(indexPage.data.banks.length, 0, '会话失效后不得继续展示旧题库');
+  assert.equal(indexPage.data.userId, null);
+}
+
+async function testPracticeLoadFailureNeverBlanksOrFakesDone() {
+  const appMock = { globalData: {}, onSessionInvalid: () => () => {} };
+
+  // 首次加载失败：必须落到错误态，而不是白屏或「练习完成」
+  const page = loadPage('pages/practice/practice.js', {
+    app: appMock,
+    requestModule: {
+      getUserId: async () => 1,
+      request: async () => { throw new Error('网络错误，请检查连接'); },
+    },
+    wx: { showToast: () => {} },
+  });
+  await page._loadQuestions(0);
+  assert.equal(page.data.loading, false);
+  assert.equal(page.data.done, false, '加载失败不得显示「练习完成」');
+  assert.ok(page.data.loadError, '加载失败必须给出错误态，避免白屏');
+
+  // 分页失败：保留已加载题目与进度，只标记 loadMoreError
+  const page2 = loadPage('pages/practice/practice.js', {
+    app: appMock,
+    requestModule: {
+      getUserId: async () => 1,
+      request: async options => {
+        if (options.url.includes('/api/questions/count')) return { total: 120 };
+        if (options.url.includes('skip=100')) throw new Error('网络错误');
+        return Array.from({ length: 100 }, (_, index) => ({
+          id: index + 1,
+          bank_id: 7,
+          type: 'single',
+          options: [{ key: 'A', text: 'answer' }],
+          answer: 'A',
+          explanation: '',
+        }));
+      },
+    },
+    wx: { showToast: () => {} },
+  });
+  await page2._loadQuestions(0);
+  assert.equal(page2.data.questions.length, 100);
+  page2._showQuestion(99);
+  await page2.nextQuestion();
+  assert.equal(page2.data.done, false, '分页失败不得误判为「练习完成」');
+  assert.equal(page2.data.loadMoreError, true);
+  assert.equal(page2.data.questions.length, 100, '分页失败后已加载题目不得丢失');
+}
+
 async function main() {
   testWrongBookUsesGlobalReviewRoutes();
   testWrongBookFilterRefreshesActiveList();
   await testWrongBookLoadsEveryPage();
   await testWrongBookShowsAnswerOptionText();
   testProfileStatsNavigateToExpectedPages();
+  await testGuestsBrowseWithoutForcedLogin();
   testWrongBookConsumesPendingTab();
   await testPracticeUsesQuestionBankId();
   await testPracticePaginationKeepsResumeOffset();
   await testWrongPracticeUsesStableCursorForLaterPages();
   await testMemorizeModeLoadsPastOneHundredQuestions();
+  await testSessionInvalidationSyncsPagesToGuest();
+  await testPracticeLoadFailureNeverBlanksOrFakesDone();
   console.log('miniapp review flow tests passed');
 }
 

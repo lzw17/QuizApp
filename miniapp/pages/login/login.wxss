@@ -413,3 +413,11 @@ page {
 .btn-submit-hover {
   background: #3459be;
 }
+
+.skip-login {
+  margin-top: 28rpx;
+  text-align: center;
+  font-size: 26rpx;
+  color: #8A93A6;
+  padding: 16rpx 0;
+}

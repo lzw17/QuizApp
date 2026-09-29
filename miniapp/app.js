@@ -37,6 +37,7 @@ App({
     isNewUser: false,
     profileRequired: false,
     baseUrl: 'https://api.quizapp.chat', // 开发者工具、真机、体验版和正式版统一使用生产 HTTPS 域名
+    sessionListeners: [],
   },
 
   onLaunch() {
@@ -72,6 +73,65 @@ App({
       return Promise.resolve(null);
     }
     return this._startWxLogin(false);
+  },
+
+  /** 是否已登录（游客态下为 false，页面据此展示登录引导而不是强行跳转） */
+  isLoggedIn() {
+    return !!(this.globalData.userId && this.globalData.accessToken);
+  },
+
+  /**
+   * 订阅会话失效事件（401 清会话、主动退出登录等）。
+   * 页面据此把自身的 loggedIn 状态同步回游客态，避免 401 后界面仍显示已登录与陈旧数据。
+   * 返回取消订阅函数，请在页面 onUnload 中调用。
+   */
+  onSessionInvalid(listener) {
+    if (typeof listener !== 'function') return () => {};
+    if (!Array.isArray(this.globalData.sessionListeners)) {
+      this.globalData.sessionListeners = [];
+    }
+    this.globalData.sessionListeners.push(listener);
+    return () => {
+      const listeners = this.globalData.sessionListeners || [];
+      const index = listeners.indexOf(listener);
+      if (index >= 0) listeners.splice(index, 1);
+    };
+  },
+
+  _notifySessionInvalid() {
+    const listeners = (this.globalData.sessionListeners || []).slice();
+    listeners.forEach(listener => {
+      try {
+        listener();
+      } catch (error) {
+        console.error('[session] listener failed', error);
+      }
+    });
+  },
+
+  /**
+   * 用户主动触发的登录引导。
+   * 只在用户点击了需要登录的功能时调用，由用户确认后再进入登录页，
+   * 满足「先浏览体验，再自行选择授权登录」的审核要求。
+   */
+  promptLogin(options = {}) {
+    return new Promise(resolve => {
+      wx.showModal({
+        title: options.title || '需要登录',
+        content: options.content || '登录后即可上传资料、生成专属题库，并同步你的练习与错题记录。',
+        confirmText: options.confirmText || '微信登录',
+        cancelText: options.cancelText || '先看看',
+        success: res => {
+          if (!res.confirm) {
+            resolve(false);
+            return;
+          }
+          wx.navigateTo({ url: '/pages/login/login' });
+          resolve(true);
+        },
+        fail: () => resolve(false),
+      });
+    });
   },
 
   async _initializeSession() {
@@ -209,6 +269,8 @@ App({
       (storageInfo.keys || []).filter(key => key.indexOf('exam-result-') === 0)
         .forEach(key => wx.removeStorageSync(key));
     }
+    // 广播给各页面：把自身 UI 同步回游客态（401 与主动退出都会走到这里）
+    this._notifySessionInvalid();
   },
 
   logout() {
@@ -223,6 +285,7 @@ App({
     }
     this.clearSession();
     wx.setStorageSync('manualLoginRequired', true);
-    wx.reLaunch({ url: '/pages/login/login' });
+    // 退出后回到首页以游客身份浏览，不强制跳登录页
+    wx.reLaunch({ url: '/pages/index/index' });
   },
 });

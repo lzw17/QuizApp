@@ -34,11 +34,34 @@ Page({
     banks: [],
     filterBankId: '',
     loading: false,
+    loggedIn: false,
     typeLabel: { single: '单选', multi: '多选', judge: '判断' },
   },
 
   onLoad(options) {
     if (options.bank_id) this.setData({ filterBankId: parseInt(options.bank_id) });
+    // 会话失效时同步回游客态，避免继续展示他人的/陈旧的错题数据
+    this._unsubscribeSession = typeof app.onSessionInvalid === 'function'
+      ? app.onSessionInvalid(() => this._resetToGuest())
+      : null;
+  },
+
+  onUnload() {
+    if (this._unsubscribeSession) this._unsubscribeSession();
+  },
+
+  _resetToGuest() {
+    this.setData({
+      loggedIn: false,
+      wrongList: [],
+      starList: [],
+      wrongTotal: 0,
+      starTotal: 0,
+      wrongHasMore: false,
+      starHasMore: false,
+      banks: [],
+      loading: false,
+    });
   },
 
   onShow() {
@@ -56,10 +79,24 @@ Page({
     if (typeof this.getTabBar === 'function' && this.getTabBar()) {
       this.getTabBar().setData({ selected: 1 });
     }
-    this._loadAll(pendingBankId ? (parseInt(pendingBankId) || '') : undefined);
+    this._refreshForSession(pendingBankId ? (parseInt(pendingBankId) || '') : undefined);
   },
+
+  /** 游客可直接浏览本页，不自动跳登录页 */
+  async _refreshForSession(filterBankId) {
+    const uid = await getUserId();
+    const loggedIn = !!uid;
+    this.setData({ loggedIn });
+    if (!loggedIn) {
+      this.setData({ wrongList: [], starList: [], wrongTotal: 0, starTotal: 0, banks: [], loading: false });
+      return;
+    }
+    await this._loadAll(filterBankId);
+  },
+
+  goLogin() { wx.navigateTo({ url: '/pages/login/login' }); },
   onPullDownRefresh() {
-    this._loadAll().finally(() => wx.stopPullDownRefresh());
+    this._refreshForSession().finally(() => wx.stopPullDownRefresh());
   },
 
   onReachBottom() {

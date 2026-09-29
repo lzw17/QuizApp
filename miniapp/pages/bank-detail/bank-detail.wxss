@@ -91,3 +91,6 @@
 .loading-page { display: flex; justify-content: center; align-items: center; min-height: 60vh; }
 .loading-dot { width: 60rpx; height: 60rpx; border: 6rpx solid var(--color-primary); border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* 失败态与加载态同容器：改竖向排列以便放文案 + 按钮 */
+.loading-page { flex-direction: column; gap: 20rpx; }
+.back-link { margin-top: 8rpx; font-size: 26rpx; color: #8A93A6; padding: 12rpx 24rpx; }

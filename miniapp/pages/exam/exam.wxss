@@ -52,7 +52,7 @@
 .option-text { font-size: 28rpx; line-height: 1.6; color: #333; }
 
 /* 底部导航 */
-.exam-nav { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; padding: 16rpx 20rpx; display: flex; gap: 16rpx; box-shadow: 0 -4rpx 20rpx rgba(0,0,0,0.08); }
+.exam-nav { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; padding: 16rpx 20rpx calc(16rpx + env(safe-area-inset-bottom)); display: flex; gap: 16rpx; box-shadow: 0 -4rpx 20rpx rgba(0,0,0,0.08); }
 .nav-btn { flex: 1; height: 84rpx; line-height: 84rpx; border-radius: 50rpx; font-size: 28rpx; background: #F0F4FF; color: #4F7EFF; border: none; }
 .nav-btn::after { border: none; }
 .nav-btn.submit-btn { background: var(--color-danger); color: #fff; }

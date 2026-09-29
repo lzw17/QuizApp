@@ -1,4 +1,6 @@
 <view class="container">
+  <!-- 常驻返回入口：自定义导航下系统没有返回键，出题期间用户也必须有可见出口 -->
+  <view class="nav-back" bindtap="goBack">‹</view>
   <view class="content">
     <!-- 动画 -->
     <view class="brain-wrap">

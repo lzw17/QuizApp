@@ -1,4 +1,4 @@
-.container { background: #F5F6FA; min-height: 100vh; padding-bottom: 40rpx; }
+.container { background: #F5F6FA; min-height: 100vh; padding-bottom: calc(140rpx + env(safe-area-inset-bottom)); }
 
 /* tabs */
 .tabs { display: flex; background: #fff; border-bottom: 2rpx solid #EEE; }

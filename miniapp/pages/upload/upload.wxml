@@ -79,7 +79,7 @@
   </view>
 
   <!-- 提交按钮 -->
-  <view class="submit-area safe-bottom">
+  <view class="submit-area">
     <button class="btn-primary submit-btn" bindtap="submit" loading="{{submitting}}" disabled="{{submitting}}">
       {{submitting ? (uploadProgress > 0 ? '上传中 ' + uploadProgress + '%' : 'AI 生成中...') : '开始生成题库'}}
     </button>

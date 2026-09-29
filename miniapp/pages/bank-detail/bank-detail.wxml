@@ -80,6 +80,13 @@
   </view>
 </view>
 
-<view class="loading-page" wx:if="{{!bank}}">
+<view class="loading-page" wx:if="{{!bank && !loadError}}">
   <view class="loading-dot"></view>
+</view>
+
+<!-- 加载失败（避免永久转圈） -->
+<view class="loading-page" wx:if="{{loadError}}">
+  <text style="color:#999;">{{loadError}}</text>
+  <button class="btn-primary" style="margin-top:32rpx;width:320rpx;" bindtap="retryLoad">重新加载</button>
+  <view class="back-link" bindtap="goBack">返回上一页</view>
 </view>

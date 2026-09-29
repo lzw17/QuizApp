@@ -9,8 +9,9 @@
         <text class="avatar-initial">{{userInfo.nickname ? userInfo.nickname[0] : '?'}}</text>
       </view>
       <view class="user-info">
-        <view class="username">{{userInfo.nickname || '未登录'}}</view>
-        <view class="user-level tag">{{levelLabel}}</view>
+        <view class="username">{{loggedIn ? (userInfo.nickname || '微信用户') : '点击登录 / 注册'}}</view>
+        <view class="user-level tag" wx:if="{{loggedIn}}">{{levelLabel}}</view>
+        <view class="user-level tag" wx:else>登录后同步学习记录</view>
       </view>
       <text class="edit-icon">✏️</text>
     </view>
@@ -102,13 +103,13 @@
       <text class="sc-label">清理本地缓存</text>
       <text class="sc-arrow">›</text>
     </view>
-    <view class="shortcut-divider"></view>
-    <view class="shortcut-item" bindtap="logout">
+    <view class="shortcut-divider" wx:if="{{loggedIn}}"></view>
+    <view class="shortcut-item" bindtap="logout" wx:if="{{loggedIn}}">
       <text class="sc-label logout-label">退出登录</text>
       <text class="sc-arrow">›</text>
     </view>
-    <view class="shortcut-divider"></view>
-    <view class="shortcut-item" bindtap="deleteAccount">
+    <view class="shortcut-divider" wx:if="{{loggedIn}}"></view>
+    <view class="shortcut-item" bindtap="deleteAccount" wx:if="{{loggedIn}}">
       <text class="sc-label logout-label">注销账号</text>
       <text class="sc-arrow">›</text>
     </view>

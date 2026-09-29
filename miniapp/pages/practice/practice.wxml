@@ -98,9 +98,16 @@
 </view>
 
 <!-- 加载中 -->
-<view class="loading-page" wx:if="{{loading}}">
+<view class="loading-page" wx:if="{{loading && !loadError}}">
   <view class="loading-dot"></view>
   <text style="margin-top:20rpx;color:#999;">加载题目...</text>
+</view>
+
+<!-- 加载失败（必须有明确出口，避免白屏） -->
+<view class="loading-page" wx:if="{{loadError}}">
+  <text style="color:#999;">{{loadError}}</text>
+  <button class="btn-primary" style="margin-top:32rpx;width:320rpx;" bindtap="retryLoad">重新加载</button>
+  <view class="load-error-back" bindtap="goBack">返回上一页</view>
 </view>
 
 <!-- 完成页 -->
